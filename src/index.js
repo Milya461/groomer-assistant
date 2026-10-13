@@ -1,3 +1,4 @@
+
 const TELEGRAM_API = "https://api.telegram.org";
 const TIME_ZONE = "Europe/Moscow";
 
@@ -747,14 +748,10 @@ async function saveVisitEarnings(env, chatId, session, input) {
 
     await deleteSession(env, chatId);
 
-    const lines = services.map(s =>
-      `${s.description} — ${money(s.amount * 0.35)}`
-    );
-
     await sendMessage(
       env,
       chatId,
-      `✅ Визит завершён: ${session.petName}\n\n${lines.join("\n")}\n\n💰 Твой заработок за визит: ${money(totalEarned)}`,
+      `✅ Визит завершён: ${session.petName}\n\n💰 Твой заработок за визит: ${money(totalEarned)}`,
       mainKeyboard()
     );
   } catch (error) {
