@@ -370,7 +370,7 @@ async function listPets(env, chatId) {
   }
 
   const keyboard = pets.map(pet => [{
-    text: "📋 Открыть карточку",
+    text: `📋 Открыть карточку: ${pet.name}`,
     callback_data: `pet:${pet.id}`
   }]);
 
