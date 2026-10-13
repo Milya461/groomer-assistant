@@ -1,7 +1,11 @@
-
 name = "groomer-assistant"
 main = "src/index.js"
 compatibility_date = "2026-10-13"
 
 [vars]
 ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "groomer-assistant-db"
+database_id = "ВСТАВЬ_ID_БАЗЫ"
