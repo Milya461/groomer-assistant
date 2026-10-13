@@ -12,73 +12,25 @@ const HELP_TEXT = [
   "/help — помощь",
   "/add — добавить питомца",
   "/pets — список питомцев",
-  "/pet ID — карточка питомца",
-  "/find имя — поиск питомца",
+  "/pet ID — открыть карточку по номеру",
+  "/find имя — найти питомца по имени",
   "/cancel — отменить заполнение",
   "/skip — пропустить необязательное поле"
 ].join("\n");
 
 const STEPS = [
-  {
-    key: "name",
-    prompt: "Как зовут питомца? Напиши имя:",
-    optional: false
-  },
-  {
-    key: "species",
-    prompt: "Кто это — собака или кошка? Напиши «собака» или «кошка»:",
-    optional: false
-  },
-  {
-    key: "breed",
-    prompt: "Какая порода? Если неизвестна, напиши /skip.",
-    optional: true
-  },
-  {
-    key: "age",
-    prompt: "Сколько питомцу лет? Можно указать возраст приблизительно. Или /skip.",
-    optional: true
-  },
-  {
-    key: "coat_features",
-    prompt: "Особенности шерсти: тип, густота, длина и другие нюансы. Или /skip.",
-    optional: true
-  },
-  {
-    key: "matting_tendency",
-    prompt: "Есть ли склонность к колтунам? Укажи проблемные зоны или напиши /skip.",
-    optional: true
-  },
-  {
-    key: "sensitive_areas",
-    prompt: "Какие зоны чувствительные? Например, лапы, морда, живот. Или /skip.",
-    optional: true
-  },
-  {
-    key: "clipper_reaction",
-    prompt: "Как питомец реагирует на машинку? Или /skip.",
-    optional: true
-  },
-  {
-    key: "dryer_reaction",
-    prompt: "Как питомец реагирует на фен? Или /skip.",
-    optional: true
-  },
-  {
-    key: "nail_clipper_reaction",
-    prompt: "Как переносит стрижку когтей? Или /skip.",
-    optional: true
-  },
-  {
-    key: "warnings",
-    prompt: "Важные предупреждения для грумера: страхи, ограничения, особенности поведения. Или /skip.",
-    optional: true
-  },
-  {
-    key: "notes",
-    prompt: "Дополнительные заметки о питомце. Или /skip.",
-    optional: true
-  }
+  { key: "name", prompt: "Как зовут питомца? Напиши имя:", optional: false },
+  { key: "species", prompt: "Кто это — собака или кошка? Напиши «собака» или «кошка»:", optional: false },
+  { key: "breed", prompt: "Какая порода? Если неизвестна, напиши /skip.", optional: true },
+  { key: "age", prompt: "Сколько питомцу лет? Можно указать приблизительно. Или /skip.", optional: true },
+  { key: "coat_features", prompt: "Особенности шерсти: тип, густота, длина и другие нюансы. Или /skip.", optional: true },
+  { key: "matting_tendency", prompt: "Есть ли склонность к колтунам? Укажи проблемные зоны или напиши /skip.", optional: true },
+  { key: "sensitive_areas", prompt: "Какие зоны чувствительные? Например, лапы, морда, живот. Или /skip.", optional: true },
+  { key: "clipper_reaction", prompt: "Как питомец реагирует на машинку? Или /skip.", optional: true },
+  { key: "dryer_reaction", prompt: "Как питомец реагирует на фен? Или /skip.", optional: true },
+  { key: "nail_clipper_reaction", prompt: "Как переносит стрижку когтей? Или /skip.", optional: true },
+  { key: "warnings", prompt: "Важные предупреждения для грумера: страхи, ограничения, особенности поведения. Или /skip.", optional: true },
+  { key: "notes", prompt: "Дополнительные заметки о питомце. Или /skip.", optional: true }
 ];
 
 async function sendMessage(env, chatId, text) {
@@ -86,19 +38,13 @@ async function sendMessage(env, chatId, text) {
     `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendMessage`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text })
     }
   );
 
   if (!response.ok) {
-    const details = await response.text();
-    console.error("Telegram sendMessage error:", details);
+    console.error("Telegram sendMessage error:", await response.text());
     throw new Error("Telegram API request failed");
   }
 }
@@ -118,9 +64,7 @@ async function getSession(env, chatId) {
     "SELECT session_data FROM user_sessions WHERE chat_id = ?"
   ).bind(String(chatId)).first();
 
-  if (!row) {
-    return null;
-  }
+  if (!row) return null;
 
   try {
     return JSON.parse(row.session_data);
@@ -137,10 +81,7 @@ async function saveSession(env, chatId, session) {
     ON CONFLICT(chat_id) DO UPDATE SET
       session_data = excluded.session_data,
       updated_at = CURRENT_TIMESTAMP
-  `).bind(
-    String(chatId),
-    JSON.stringify(session)
-  ).run();
+  `).bind(String(chatId), JSON.stringify(session)).run();
 }
 
 async function deleteSession(env, chatId) {
@@ -181,7 +122,7 @@ function formatPet(pet) {
     ["Заметки", pet.notes]
   ];
 
-  const result = [
+  const lines = [
     `🐾 Карточка питомца №${pet.id}`,
     "",
     `Имя: ${pet.name}`,
@@ -190,24 +131,16 @@ function formatPet(pet) {
 
   for (const [label, value] of fields) {
     if (value && String(value).trim()) {
-      result.push(`${label}: ${value}`);
+      lines.push(`${label}: ${value}`);
     }
   }
 
-  return result.join("\n");
+  return lines.join("\n");
 }
 
 async function startAdding(env, chatId) {
-  await saveSession(env, chatId, {
-    step: 0,
-    data: {}
-  });
-
-  await sendMessage(
-    env,
-    chatId,
-    "🐾 Создаём карточку нового питомца!\n\n" + STEPS[0].prompt
-  );
+  await saveSession(env, chatId, { step: 0, data: {} });
+  await sendMessage(env, chatId, "🐾 Создаём карточку нового питомца!\n\n" + STEPS[0].prompt);
 }
 
 async function processForm(env, chatId, input, session) {
@@ -215,11 +148,7 @@ async function processForm(env, chatId, input, session) {
 
   if (!step) {
     await deleteSession(env, chatId);
-    await sendMessage(
-      env,
-      chatId,
-      "Произошла ошибка заполнения. Начни заново командой /add."
-    );
+    await sendMessage(env, chatId, "Произошла ошибка заполнения. Начни заново командой /add.");
     return;
   }
 
@@ -227,27 +156,16 @@ async function processForm(env, chatId, input, session) {
 
   if (value === "/skip") {
     if (!step.optional) {
-      await sendMessage(
-        env,
-        chatId,
-        "Это обязательное поле. Пожалуйста, заполни его."
-      );
+      await sendMessage(env, chatId, "Это обязательное поле. Пожалуйста, заполни его.");
       return;
     }
-
     value = "";
   } else if (step.key === "species") {
     const species = parseSpecies(value);
-
     if (!species) {
-      await sendMessage(
-        env,
-        chatId,
-        "Не удалось определить вид. Напиши «собака» или «кошка»."
-      );
+      await sendMessage(env, chatId, "Не удалось определить вид. Напиши «собака» или «кошка».");
       return;
     }
-
     value = species;
   } else if (!value && !step.optional) {
     await sendMessage(env, chatId, "Это поле обязательно. Попробуй ещё раз.");
@@ -259,11 +177,10 @@ async function processForm(env, chatId, input, session) {
 
   if (session.step < STEPS.length) {
     await saveSession(env, chatId, session);
-
     await sendMessage(
       env,
       chatId,
-      `Сохранено в заполнении: ${step.key === "species" ? displaySpecies(value) : (value || "не указано")}.\n\n${STEPS[session.step].prompt}`
+      `Принято: ${value || "не указано"}.\n\n${STEPS[session.step].prompt}`
     );
     return;
   }
@@ -273,18 +190,9 @@ async function processForm(env, chatId, input, session) {
   try {
     const result = await env.DB.prepare(`
       INSERT INTO dogs (
-        name,
-        species,
-        breed,
-        age,
-        coat_features,
-        matting_tendency,
-        sensitive_areas,
-        clipper_reaction,
-        dryer_reaction,
-        nail_clipper_reaction,
-        warnings,
-        notes
+        name, species, breed, age, coat_features, matting_tendency,
+        sensitive_areas, clipper_reaction, dryer_reaction,
+        nail_clipper_reaction, warnings, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name,
@@ -303,23 +211,20 @@ async function processForm(env, chatId, input, session) {
 
     await deleteSession(env, chatId);
 
-    const petId = result.meta?.last_row_id;
+    const petId = result.meta?.last_row_id ?? "—";
+    const pet = { id: petId, ...data };
 
     await sendMessage(
       env,
       chatId,
-      `✅ Карточка успешно сохранена!\n\n${formatPet({
-        id: petId ?? "—",
-        ...data
-      })}\n\nПосмотреть карточку можно командой /pet ${petId ?? ""}\nСписок питомцев: /pets`
+      `✅ ${data.name} добавлен${data.species === "cat" ? "а" : ""} в картотеку!\n\n${formatPet(pet)}`
     );
   } catch (error) {
     console.error("Failed to save pet:", error);
-
     await sendMessage(
       env,
       chatId,
-      "Не удалось сохранить карточку в базу данных. Заполнение пока сохранено. Попробуй снова отправить последнее сообщение или напиши /cancel, чтобы отменить."
+      "Не удалось сохранить карточку в базу данных. Заполнение пока сохранено. Попробуй ещё раз или напиши /cancel."
     );
   }
 }
@@ -327,43 +232,32 @@ async function processForm(env, chatId, input, session) {
 async function listPets(env, chatId) {
   const result = await env.DB.prepare(`
     SELECT id, name, species, breed
-    FROM dogs
-    ORDER BY name COLLATE NOCASE, id
-    LIMIT 50
+    FROM dogs ORDER BY name COLLATE NOCASE, id LIMIT 50
   `).all();
 
   const pets = result.results || [];
 
-  if (pets.length === 0) {
-    await sendMessage(
-      env,
-      chatId,
-      "Пока карточек нет 🐾\n\nДобавить питомца: /add"
-    );
+  if (!pets.length) {
+    await sendMessage(env, chatId, "Пока карточек нет 🐾\n\nДобавить питомца: /add");
     return;
   }
 
   const lines = [
     "🐾 Твои питомцы:",
     "",
-    ...pets.map((pet) =>
+    ...pets.map(pet =>
       `№${pet.id} — ${pet.name} (${pet.species === "cat" ? "кошка" : "собака"})${pet.breed ? ", " + pet.breed : ""}`
-    ),
-    "",
-    "Чтобы открыть карточку, напиши /pet ID.",
-    "Например: /pet 1"
+    )
   ];
 
-  if (pets.length === 50) {
-    lines.push("", "Показаны первые 50 карточек.");
-  }
+  if (pets.length === 50) lines.push("", "Показаны первые 50 карточек.");
 
   await sendMessage(env, chatId, lines.join("\n"));
 }
 
 async function showPet(env, chatId, id) {
   if (!/^\d+$/.test(id)) {
-    await sendMessage(env, chatId, "Укажи номер карточки. Например: /pet 1");
+    await sendMessage(env, chatId, "Укажи номер карточки или напиши имя питомца.");
     return;
   }
 
@@ -381,41 +275,66 @@ async function showPet(env, chatId, id) {
 
 async function findPets(env, chatId, query) {
   if (!query) {
-    await sendMessage(
-      env,
-      chatId,
-      "Напиши имя для поиска. Например: /find Белла"
-    );
+    await sendMessage(env, chatId, "Напиши имя для поиска. Например: /find Белла");
     return;
   }
 
   const result = await env.DB.prepare(`
-    SELECT id, name, species, breed
-    FROM dogs
+    SELECT * FROM dogs
     WHERE name LIKE ? COLLATE NOCASE
     ORDER BY name COLLATE NOCASE, id
     LIMIT 20
   `).bind(`%${query}%`).all();
 
+  await sendPetMatches(env, chatId, query, result.results || []);
+}
+
+async function findByPlainName(env, chatId, query) {
+  const result = await env.DB.prepare(`
+    SELECT * FROM dogs
+    WHERE name = ? COLLATE NOCASE
+    ORDER BY id
+    LIMIT 20
+  `).bind(query).all();
+
   const pets = result.results || [];
 
-  if (pets.length === 0) {
+  if (!pets.length) {
     await sendMessage(
       env,
       chatId,
-      `По запросу «${query}» ничего не найдено.`
+      `Не нашла питомца «${query}». Если хочешь добавить нового, напиши /add.`
     );
     return;
   }
 
+  if (pets.length === 1) {
+    await sendMessage(env, chatId, formatPet(pets[0]));
+    return;
+  }
+
+  await sendPetMatches(env, chatId, query, pets);
+}
+
+async function sendPetMatches(env, chatId, query, pets) {
+  if (!pets.length) {
+    await sendMessage(env, chatId, `По запросу «${query}» ничего не найдено.`);
+    return;
+  }
+
+  if (pets.length === 1) {
+    await sendMessage(env, chatId, formatPet(pets[0]));
+    return;
+  }
+
   const lines = [
-    `🔎 Результаты поиска: ${query}`,
+    `🔎 Нашла несколько питомцев по запросу «${query}»:`,
     "",
-    ...pets.map((pet) =>
+    ...pets.map(pet =>
       `№${pet.id} — ${pet.name} (${pet.species === "cat" ? "кошка" : "собака"})${pet.breed ? ", " + pet.breed : ""}`
     ),
     "",
-    "Открыть карточку: /pet ID"
+    "Чтобы открыть нужную карточку, напиши /pet ID."
   ];
 
   await sendMessage(env, chatId, lines.join("\n"));
@@ -428,28 +347,20 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response("Groomer Assistant is running.", {
         status: 200,
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8"
-        }
+        headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
     }
 
     if (request.method !== "POST") {
-      return new Response("Method Not Allowed", {
-        status: 405
-      });
+      return new Response("Method Not Allowed", { status: 405 });
     }
 
     if (!env.BOT_TOKEN) {
-      return new Response("Bot token is not configured.", {
-        status: 500
-      });
+      return new Response("Bot token is not configured.", { status: 500 });
     }
 
     if (!env.DB) {
-      return new Response("D1 database binding DB is not configured.", {
-        status: 500
-      });
+      return new Response("D1 database binding DB is not configured.", { status: 500 });
     }
 
     let update;
@@ -457,23 +368,18 @@ export default {
     try {
       update = await request.json();
     } catch {
-      return new Response("Invalid JSON", {
-        status: 400
-      });
+      return new Response("Invalid JSON", { status: 400 });
     }
 
     const message = update.message;
 
     if (!message || !message.chat || typeof message.text !== "string") {
-      return new Response("OK", {
-        status: 200
-      });
+      return new Response("OK", { status: 200 });
     }
 
     const chatId = message.chat.id;
     const text = message.text.trim();
-    const firstToken = text.split(/\s+/)[0];
-    const command = firstToken.split("@")[0];
+    const command = text.split(/\s+/)[0].split("@")[0];
 
     try {
       await initializeDatabase(env);
@@ -496,11 +402,7 @@ export default {
 
       if (command === "/cancel") {
         await deleteSession(env, chatId);
-        await sendMessage(
-          env,
-          chatId,
-          "Заполнение отменено. Данные карточки не сохранены.\n\nЧтобы начать заново, напиши /add."
-        );
+        await sendMessage(env, chatId, "Заполнение отменено. Чтобы начать заново, напиши /add.");
         return new Response("OK");
       }
 
@@ -510,8 +412,16 @@ export default {
       }
 
       if (command === "/pet") {
-        const id = text.split(/\s+/)[1] || "";
-        await showPet(env, chatId, id);
+        const argument = text.split(/\s+/).slice(1).join(" ").trim();
+
+        if (/^\d+$/.test(argument)) {
+          await showPet(env, chatId, argument);
+        } else if (argument) {
+          await findByPlainName(env, chatId, argument);
+        } else {
+          await sendMessage(env, chatId, "Напиши /pet 1 или /pet Янтарь.");
+        }
+
         return new Response("OK");
       }
 
@@ -528,12 +438,7 @@ export default {
         return new Response("OK");
       }
 
-      await sendMessage(
-        env,
-        chatId,
-        "Не знаю такую команду. Напиши /help, чтобы увидеть список команд."
-      );
-
+      await findByPlainName(env, chatId, text);
       return new Response("OK");
     } catch (error) {
       console.error("Groomer Assistant error:", error);
@@ -548,9 +453,7 @@ export default {
         console.error("Could not send error message:", sendError);
       }
 
-      return new Response("Internal error", {
-        status: 500
-      });
+      return new Response("Internal error", { status: 500 });
     }
   }
 };
