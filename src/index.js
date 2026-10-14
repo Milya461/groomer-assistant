@@ -1615,6 +1615,9 @@ async function saveVisitEarnings(env, chatId, session, input) {
       a.appointment_date,
       a.actual_start_time,
       a.appointment_time,
+      d.id AS dog_id,
+      d.name,
+      d.is_temporary,
       d.species,
       d.breed,
       d.coat_features
