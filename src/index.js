@@ -378,7 +378,40 @@ function displaySpecies(species, name = "") {
 
   return "Кошка 🐈";
 }
+function shouldHavePhotoArchive(pet) {
+  const species = String(pet.species || "").toLowerCase();
+  const breed = String(pet.breed || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .trim();
+  const coat = String(pet.coat_features || "")
+    .toLowerCase()
+    .replace(/ё/g, "е");
 
+  if (species === "cat") return false;
+
+  const excludedBreeds = [
+    /мопс/,
+    /бигл/,
+    /корги/,
+    /бульдог/,
+    /такс/
+  ];
+
+  if (excludedBreeds.some(pattern => pattern.test(breed))) {
+    return false;
+  }
+
+  if (/короткошерст|короткая шерсть|гладкошерст|гладкая шерсть/.test(coat)) {
+    return false;
+  }
+
+  if (/чихуахуа/.test(breed)) {
+    return /длинношерст|длинная шерсть/.test(coat);
+  }
+
+  return /длинношерст|длинная шерсть|стрижк|груминг|колтун/.test(coat);
+}
 function parseSpecies(value) {
   const normalized = value.trim().toLowerCase();
 
@@ -580,21 +613,27 @@ async function showPet(env, chatId, id) {
     return;
   }
 
-    await sendMessage(
-      env,
-      chatId,
-      formatPet(pet),
+    const keyboard = [
+    [
+      { text: "▶️  Начать визит", callback_data: `visit:${pet.id}` }
+    ]
+  ];
+
+  if (shouldHavePhotoArchive(pet)) {
+    keyboard.push([
       {
-        inline_keyboard: [
-          [
-            { text: "▶️  Начать визит", callback_data: `visit:${pet.id}` }
-          ],
-          [
-            { text: "🖼 История фотографий", callback_data: `photos:${pet.id}` }
-          ]
-        ]
+        text: "🖼 История фотографий",
+        callback_data: `photos:${pet.id}`
       }
-    );
+    ]);
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    formatPet(pet),
+    { inline_keyboard: keyboard }
+  );
 }
 async function searchPets(env, chatId, query) {
   const normalizedQuery = String(query || "")
@@ -1518,9 +1557,20 @@ async function saveVisitEarnings(env, chatId, session, input) {
       chatId,
       `✅ Визит завершён: ${session.petName}\n\n` +
         `⏱ Фактическое время: ${formatDuration(durationMinutes)}\n\n` +
-        `📸 Не забудь сохранить фото ПОСЛЕ и важные заметки.\n\n` +
         `💰 Твой заработок за визит: ${money(totalEarned)}`,
-      mainKeyboard()
+      {
+        inline_keyboard: [
+          [
+            {
+              text: "📸  Сохранить фото ПОСЛЕ",
+              callback_data: `photo_after:${session.appointmentId}`
+            }
+          ],
+          [
+            { text: "🏠 Главное меню", callback_data: "home" }
+          ]
+        ]
+      }
     );
     await showDailyQueue(env, chatId, true);
   } catch (error) {
