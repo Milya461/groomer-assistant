@@ -1348,6 +1348,9 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
 }
 
 async function choosePetForVisit(env, chatId) {
+  // При переходе к выбору питомца отменяем предыдущий режим ввода.
+  await deleteSession(env, chatId);
+
   const result = await env.DB.prepare(`
     SELECT id, name, breed
     FROM dogs
@@ -1358,24 +1361,76 @@ async function choosePetForVisit(env, chatId) {
 
   const pets = result.results || [];
 
-  if (!pets.length) {
-    await sendMessage(env, chatId, "Сначала добавь питомца командой /add.");
-    return;
-  }
+  const keyboard = pets.map(pet => [{
+    text: `${pet.name}${pet.breed ? " — " + pet.breed : ""}`,
+    callback_data: `visit:${pet.id}`
+  }]);
+
+  keyboard.push([{
+    text: "➕ Нет карточки",
+    callback_data: "visit_none"
+  }]);
 
   await sendMessage(
     env,
     chatId,
     "Выбери питомца, который пришёл:",
-    {
-      inline_keyboard: pets.map(pet => [{
-        text: `${pet.name}${pet.breed ? " — " + pet.breed : ""}`,
-        callback_data: `visit:${pet.id}`
-      }])
-    }
+    { inline_keyboard: keyboard }
+  );
+}
+async function startVisitWithoutCard(env, chatId) {
+  await saveSession(env, chatId, {
+    type: "visit_without_card"
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    "🐾  Питомец без карточки\n\n" +
+      "Напиши имя питомца.\n" +
+      "Если знаешь породу, укажи её перед именем.\n\n" +
+      "Примеры:\n" +
+      "Меллоу\n" +
+      "Мальтипу Меллоу\n\n" +
+      "После этого я сразу начну визит.\n" +
+      "/cancel — отмена"
   );
 }
 
+async function processVisitWithoutCard(env, chatId, input) {
+  const breed = extractQueueBreed(input);
+  const name = cleanQueueName(input);
+
+  if (!name || name.length > 100) {
+    await sendMessage(
+      env,
+      chatId,
+      "Не удалось определить имя питомца. Напиши имя ещё раз или отправь /cancel."
+    );
+    return;
+  }
+
+  try {
+    const result = await env.DB.prepare(`
+      INSERT INTO dogs (name, species, breed, is_temporary)
+      VALUES (?, 'dog', ?, 1)
+    `).bind(name, breed || null).run();
+
+    const petId = Number(result.meta.last_row_id);
+
+    await deleteSession(env, chatId);
+
+    await startVisit(env, chatId, petId);
+  } catch (error) {
+    console.error("Could not start visit without a pet card:", error);
+
+    await sendMessage(
+      env,
+      chatId,
+      "Не удалось создать временную запись питомца. Попробуй ещё раз или отправь /cancel."
+    );
+  }
+}
 async function listVisits(env, chatId) {
   const result = await env.DB.prepare(`
     SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
@@ -2308,6 +2363,10 @@ async function processWorkSchedule(env, chatId, input) {
 }
 
 async function processSession(env, chatId, input, session) {
+  if (session.type === "visit_without_card") {
+    await processVisitWithoutCard(env, chatId, input);
+    return;
+  }
   if (session.type === "work_schedule") {
     await processWorkSchedule(env, chatId, input);
     return;
@@ -2687,6 +2746,9 @@ if (data.startsWith("cancel_queue:")) {
   if (data === "earnings") return showEarningsMenu(env, chatId);
   if (data === "add") return startAdding(env, chatId);
   if (data === "visit_choose") return choosePetForVisit(env, chatId);
+  if (data === "visit_none") {
+    return startVisitWithoutCard(env, chatId);
+  }
   if (data === "today") return earningsToday(env, chatId);
   if (data === "period") return earningsPeriod(env, chatId);
   if (data === "month") return earningsMonth(env, chatId);
