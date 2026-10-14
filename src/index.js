@@ -834,21 +834,26 @@ async function showGroomingCard(env, chatId, dogId) {
     return;
   }
 
-  const card = await getGroomingCard(env, pet.id);
+  const card = await getGroomingCard(env, pet.id
+);
+  const cardText = await formatGroomingCard(card);
 
   await sendMessage(
     env,
     chatId,
-    `🐾 ${pet.name}\n\n${formatGroomingCard(card)}`,
+    `🐾  ${pet.name
+}\n\n${cardText}`,
     {
       inline_keyboard: [
         [{
-          text: "📝 Заполнить / изменить",
-          callback_data: `grooming_edit:${pet.id}`
+          text: "📝  Заполнить / изменить",
+          callback_data: `grooming_edit:${pet.id
+}`
         }],
         [{
-          text: "⬅️ Карточка питомца",
-          callback_data: `pet:${pet.id}`
+          text: "⬅️  Карточка питомца",
+          callback_data: `pet:${pet.id
+}`
         }]
       ]
     }
