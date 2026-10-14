@@ -1558,6 +1558,9 @@ async function showWorkdayMenu(env, chatId) {
           { text: "✂️ Визиты в работе", callback_data: "visits" }
         ],
         [
+          { text: "➕ Услуга без записи", callback_data: "plus" }
+        ],
+        [
           { text: "🏠 Главное меню", callback_data: "home" }
         ]
       ]
@@ -1590,7 +1593,7 @@ async function showEarningsMenu(env, chatId) {
   await sendMessage(
     env,
     chatId,
-    "💰 Мой заработок\n\nВыбери действие:",
+    "💰 Мой заработок\n\nВыбери период:",
     {
       inline_keyboard: [
         [
@@ -1599,9 +1602,6 @@ async function showEarningsMenu(env, chatId) {
         ],
         [
           { text: "🗓 Месяц", callback_data: "month" }
-        ],
-        [
-          { text: "➕ Услуга без записи", callback_data: "plus" }
         ],
         [
           { text: "🏠 Главное меню", callback_data: "home" }
