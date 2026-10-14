@@ -1116,7 +1116,7 @@ async function beginDurationInput(env, chatId, appointmentId) {
   await sendMessage(
     env,
     chatId,
-    `Сколько времени выделено на ${visit.name}?\n\nНапример: 2:30, 150 минут или 2 ч 30 мин.\n\n/cancel — отмена`
+    `Сколько времени выделено на ${visit.name}?\n\n/cancel — отмена`
   );
 }
 
