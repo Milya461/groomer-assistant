@@ -2218,21 +2218,6 @@ export default {
 
       await findByPlainName(env, chatId, text);
       return new Response("OK");
-      }
-
-      if (await handlePlainArrival(env, chatId, text)) {
-        return new Response("OK");
-      }
-
-      const session = await getSession(env, chatId);
-
-      if (session) {
-        await processSession(env, chatId, text, session);
-        return new Response("OK");
-      }
-
-      await findByPlainName(env, chatId, text);
-      return new Response("OK");
     } catch (error) {
       console.error("Groomer Assistant error:", error);
 
