@@ -1709,7 +1709,82 @@ async function listVisits(env, chatId) {
     { inline_keyboard: keyboard }
   );
 }
+async function listVisitHistory(env, chatId) {
+  const result = await env.DB.prepare(`
+    SELECT
+      a.id,
+      a.dog_id,
+      a.appointment_date,
+      a.appointment_time,
+      a.actual_start_time,
+      a.actual_end_time,
+      a.planned_duration_minutes,
+      a.actual_duration_minutes,
+      d.name,
+      d.breed
+    FROM appointments a
+    JOIN dogs d ON d.id = a.dog_id
+    WHERE a.status = 'completed'
+    ORDER BY
+      a.appointment_date DESC,
+      a.appointment_time DESC,
+      a.id
+ DESC
+    LIMIT 30
+  `).all();
 
+  const visits = result.results || [];
+
+  if (!visits.length) {
+    await sendMessage(
+      env,
+      chatId,
+      "📚 Завершённых визитов пока нет.",
+      {
+        inline_keyboard: [[
+          { text: "⬅️  Рабочий день", callback_data: "workday" }
+        ]]
+      }
+    );
+    return;
+  }
+
+  const lines = visits.map((visit, index) => {
+    const date = visit.appointment_date || "";
+    const formattedDate = date.length >= 10
+      ? `${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)}`
+      : date;
+
+    const details = [
+      `${index + 1}. ${visit.name}${visit.breed ? ` (${visit.breed})` : ""}`,
+      `Дата: ${formattedDate}`,
+      `Начало: ${visit.actual_start_time || visit.appointment_time || "не указано"}`,
+      `Окончание: ${visit.actual_end_time || "не указано"}`,
+      `План: ${visit.planned_duration_minutes
+        ? formatDuration(visit.planned_duration_minutes)
+        : "не указано"}`,
+      `Факт: ${visit.actual_duration_minutes != null
+        ? formatDuration(visit.actual_duration_minutes)
+        : "не указано"}`
+    ];
+
+    return details.join("\n");
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    "📚 История завершённых визитов\n\n" +
+      lines.join("\n\n"),
+    {
+      inline_keyboard: [[
+        { text: "⬅️  Рабочий день", callback_data: "workday" }
+      ], [
+        { text: "🏠 Главное меню", callback_data: "home" }
+      ]]
+    }
+  );
+}
 function formatDuration(minutes) {
   const value = Number(minutes || 0);
   const hours = Math.floor(value / 60);
@@ -2369,15 +2444,18 @@ async function showWorkdayMenu(env, chatId) {
   await sendMessage(
     env,
     chatId,
-    "📅 Рабочий день\n\nВыбери нужное действие:",
+    "📅  Рабочий день\n\nВыбери нужное действие:",
     {
       inline_keyboard: [
         [
           { text: "📋 Очередь на сегодня", callback_data: "queue" }
         ],
         [
-          { text: "🐾 Начать визит", callback_data: "visit_choose" },
-          { text: "✂️ Визиты в работе", callback_data: "visits" }
+          { text: "🐾  Начать визит", callback_data: "visit_choose" },
+          { text: "✂️  Визиты в работе", callback_data: "visits" }
+        ],
+        [
+          { text: "📚 История визитов", callback_data: "visit_history" }
         ],
         [
           { text: "➕ Услуга без записи", callback_data: "plus" }
@@ -2389,7 +2467,6 @@ async function showWorkdayMenu(env, chatId) {
     }
   );
 }
-
 async function showPetsMenu(env, chatId) {
   await sendMessage(
     env,
@@ -2988,6 +3065,9 @@ if (data.startsWith("cancel_queue:")) {
   );
 }
   if (data === "visits") return listVisits(env, chatId);
+  if (data === "visit_history") {
+  return listVisitHistory(env, chatId);
+}
   if (data === "plus") return beginPlus(env, chatId);
   if (data === "earnings") return showEarningsMenu(env, chatId);
   if (data === "add") return startAdding(env, chatId);
