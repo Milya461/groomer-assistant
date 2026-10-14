@@ -194,7 +194,24 @@ async function initializeDatabase(env) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
-
+await env.DB.prepare(`
+  CREATE TABLE IF NOT EXISTS grooming_cards (
+    dog_id INTEGER PRIMARY KEY,
+    body_length TEXT,
+    legs_length TEXT,
+    face_length TEXT,
+    tail_length TEXT,
+    head_shape TEXT,
+    paws_shape TEXT,
+    attachments TEXT,
+    blades TEXT,
+    owner_preferences TEXT,
+    next_visit_changes TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (dog_id)
+      REFERENCES dogs(id) ON DELETE CASCADE
+  )
+`).run();
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS earnings_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,7 +301,93 @@ async function initializeDatabase(env) {
     `).bind(shiftDate).run();
   }
 }
+async function getGroomingCard(env, dogId) {
+  return env.DB.prepare(`
+    SELECT
+      dog_id,
+      body_length,
+      legs_length,
+      face_length,
+      tail_length,
+      head_shape,
+      paws_shape,
+      attachments,
+      blades,
+      owner_preferences,
+      next_visit_changes,
+      updated_at
+    FROM grooming_cards
+    WHERE dog_id = ?
+  `).bind(dogId).first();
+}
 
+async function saveGroomingCard(env, dogId, data) {
+  await env.DB.prepare(`
+    INSERT INTO grooming_cards (
+      dog_id,
+      body_length,
+      legs_length,
+      face_length,
+      tail_length,
+      head_shape,
+      paws_shape,
+      attachments,
+      blades,
+      owner_preferences,
+      next_visit_changes,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(dog_id) DO UPDATE SET
+      body_length = excluded.body_length,
+      legs_length = excluded.legs_length,
+      face_length = excluded.face_length,
+      tail_length = excluded.tail_length,
+      head_shape = excluded.head_shape,
+      paws_shape = excluded.paws_shape,
+      attachments = excluded.attachments,
+      blades = excluded.blades,
+      owner_preferences = excluded.owner_preferences,
+      next_visit_changes = excluded.next_visit_changes,
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(
+    dogId,
+    data.body_length || null,
+    data.legs_length || null,
+    data.face_length || null,
+    data.tail_length || null,
+    data.head_shape || null,
+    data.paws_shape || null,
+    data.attachments || null,
+    data.blades || null,
+    data.owner_preferences || null,
+    data.next_visit_changes || null
+  ).run();
+}
+
+async function formatGroomingCard(card) {
+  if (!card) {
+    return "✂️  Карта стрижки пока не заполнена.";
+  }
+
+  return [
+    "✂️  Карта стрижки",
+    "",
+    `Корпус: ${card.body_length || "—"}`,
+    `Лапы: ${card.legs_length || "—"}`,
+    `Морда: ${card.face_length || "—"}`,
+    `Хвост: ${card.tail_length || "—"}`,
+    "",
+    `Форма головы: ${card.head_shape || "—"}`,
+    `Форма лап: ${card.paws_shape || "—"}`,
+    "",
+    `Насадки: ${card.attachments || "—"}`,
+    `Ножи: ${card.blades || "—"}`,
+    "",
+    `Пожелания владельца: ${card.owner_preferences || "—"}`,
+    `Изменить в следующий раз: ${card.next_visit_changes || "—"}`
+  ].join("\n");
+}
 async function rememberChat(env, chatId) {
   await env.DB.prepare(`
     INSERT INTO assistant_settings (setting_key, setting_value, updated_at)
