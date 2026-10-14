@@ -1328,17 +1328,21 @@ async function showDailyQueue(env, chatId, remainingOnly = false) {
   );
 
     const buttons = rows
-    .filter(row => ["scheduled", "waiting"].includes(row.status))
-    .flatMap(row => [
-      [{
-        text: `▶️ Пришёл: ${row.name}`,
-        callback_data: `arrived:${row.id}`
-      }],
-      [{
-        text: `❌ Отменить: ${row.name}`,
-        callback_data: `cancel_queue:${row.id}`
-      }]
-    ]);
+      .filter(row => ["scheduled", "waiting"].includes(row.status))
+      .flatMap(row => [
+        [{
+          text: `▶️  Пришёл: ${row.name}`,
+          callback_data: `arrived:${row.id}`
+        }],
+        [{
+          text: `📅  Перенести: ${row.name}`,
+          callback_data: `reschedule_queue:${row.id}`
+        }],
+        [{
+          text: `❌ Отменить: ${row.name}`,
+          callback_data: `cancel_queue:${row.id}`
+        }]
+      ]);
 
   await sendMessage(
     env,
@@ -2682,6 +2686,10 @@ async function processWorkSchedule(env, chatId, input) {
 }
 
 async function processSession(env, chatId, input, session) {
+  if (session.type === "reschedule_appointment") {
+    await processAppointmentReschedule(env, chatId, input, session);
+    return;
+  }
   if (session.type === "grooming_card") {
     await processGroomingCardInput(env, chatId, input, session);
     return;
@@ -2993,6 +3001,281 @@ async function confirmQueueCancellation(env, chatId, appointmentId) {
     }
   );
 }
+async function startAppointmentReschedule(env, chatId, appointmentId) {
+  const appointment = await getPetForAppointment(env, appointmentId);
+
+  if (!appointment) {
+    await sendMessage(env, chatId, "Запись не найдена.");
+    return;
+  }
+
+  if (!["scheduled", "waiting"].includes(appointment.status)) {
+    await sendMessage(
+      env,
+      chatId,
+      "Перенести можно только запись, которая ещё не началась."
+    );
+    return;
+  }
+
+  await saveSession(env, chatId, {
+    type: "reschedule_appointment",
+    appointmentId: Number(appointment.id)
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    `📅 Перенос записи: ${appointment.name}\n\n` +
+      `Сейчас: ${appointment.appointment_date} ${appointment.appointment_time}\n\n` +
+      "Отправь новую дату и время в формате:\n" +
+      "ДД.ММ.ГГГГ ЧЧ:ММ\n\n" +
+      "Например: 20.11.2026 14:30\n\n" +
+      "Дата должна быть рабочей, а время — внутри смены и свободным.\n\n" +
+      "Для отмены переноса введи /cancel."
+  );
+}
+
+async function processAppointmentReschedule(env, chatId, input, session) {
+  const match = input.trim().match(
+    /^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):([0-5]\d)$/
+  );
+
+  if (!match) {
+    await sendMessage(
+      env,
+      chatId,
+      "Неверный формат. Отправь дату и время так:\n20.11.2026 14:30"
+    );
+    return;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+
+  if (hour > 23) {
+    await sendMessage(env, chatId, "Проверь время. Часы должны быть от 00 до 23.");
+    return;
+  }
+
+  const dateObject = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    dateObject.getUTCFullYear() !== year ||
+    dateObject.getUTCMonth() !== month - 1 ||
+    dateObject.getUTCDate() !== day
+  ) {
+    await sendMessage(env, chatId, "Такой даты не существует. Проверь дату и отправь ещё раз.");
+    return;
+  }
+
+  const targetDate =
+    `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const targetTime =
+    `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+  if (
+    targetDate < localDate() ||
+    (targetDate === localDate() && targetTime <= localTime())
+  ) {
+    await sendMessage(
+      env,
+      chatId,
+      "Нельзя перенести запись на прошедшие дату или время."
+    );
+    return;
+  }
+
+  const appointment = await getPetForAppointment(env, session.appointmentId);
+
+  if (!appointment || !["scheduled", "waiting"].includes(appointment.status)) {
+    await deleteSession(env, chatId);
+    await sendMessage(
+      env,
+      chatId,
+      "Исходная запись уже изменилась. Обнови очередь и начни перенос заново."
+    );
+    return;
+  }
+
+  if (
+    appointment.appointment_date === targetDate &&
+    appointment.appointment_time === targetTime
+  ) {
+    await sendMessage(
+      env,
+      chatId,
+      "Это уже время исходной записи. Отправь другую дату или время."
+    );
+    return;
+  }
+
+  const shift = await env.DB.prepare(`
+    SELECT start_time, end_time
+    FROM assistant_work_shifts
+    WHERE shift_date = ?
+  `).bind(targetDate).first();
+
+  if (!shift) {
+    await sendMessage(
+      env,
+      chatId,
+      "На эту дату смена не запланирована. Выбери рабочую дату из графика."
+    );
+    return;
+  }
+
+  if (targetTime < shift.start_time || targetTime >= shift.end_time) {
+    await sendMessage(
+      env,
+      chatId,
+      `Время вне смены. Рабочие часы: ${shift.start_time}–${shift.end_time}.\n` +
+        "Отправь другую дату и время."
+    );
+    return;
+  }
+
+  const plannedDuration = Number(appointment.planned_duration_minutes || 0);
+
+  if (plannedDuration > 0) {
+    const targetEndMinutes =
+      hour * 60 + minute + plannedDuration;
+    const shiftEndMinutes =
+      Number(shift.end_time.slice(0, 2)) * 60 +
+      Number(shift.end_time.slice(3, 5));
+
+    if (targetEndMinutes > shiftEndMinutes) {
+      await sendMessage(
+        env,
+        chatId,
+        "Плановая продолжительность визита выходит за пределы смены. Выбери более раннее время."
+      );
+      return;
+    }
+  }
+
+  const occupied = await env.DB.prepare(`
+    SELECT id, appointment_time, planned_duration_minutes
+    FROM appointments
+    WHERE appointment_date = ?
+      AND status IN ('scheduled', 'waiting', 'in_progress')
+      AND id != ?
+  `).bind(targetDate, Number(appointment.id)).all();
+
+  const targetStart = hour * 60 + minute;
+  const targetEnd = targetStart + plannedDuration;
+
+  for (const other of occupied.results || []) {
+    if (other.appointment_time === targetTime) {
+      await sendMessage(
+        env,
+        chatId,
+        "На это время уже есть запись. Выбери другое время."
+      );
+      return;
+    }
+
+    const otherDuration = Number(other.planned_duration_minutes || 0);
+
+    if (plannedDuration > 0 && otherDuration > 0) {
+      const [otherHour, otherMinute] = other.appointment_time
+        .split(":")
+        .map(Number);
+
+      const otherStart = otherHour * 60 + otherMinute;
+      const otherEnd = otherStart + otherDuration;
+
+      if (targetStart < otherEnd && otherStart < targetEnd) {
+        await sendMessage(
+          env,
+          chatId,
+          "Это время пересекается с другим визитом. Выбери свободный интервал."
+        );
+        return;
+      }
+    }
+  }
+
+  const positionResult = await env.DB.prepare(`
+    SELECT COALESCE(MAX(queue_position), 0) AS max_position
+    FROM appointments
+    WHERE appointment_date = ?
+      AND status IN ('scheduled', 'waiting', 'in_progress')
+  `).bind(targetDate).first();
+
+  const newPosition = Number(positionResult?.max_position || 0) + 1;
+
+  const inserted = await env.DB.prepare(`
+    INSERT INTO appointments (
+      dog_id,
+      appointment_date,
+      appointment_time,
+      queue_position,
+      status,
+      procedures,
+      planned_duration_minutes
+    )
+    VALUES (?, ?, ?, ?, 'scheduled', ?, ?)
+  `).bind(
+    appointment.dog_id,
+    targetDate,
+    targetTime,
+    newPosition,
+    appointment.procedures || "",
+    appointment.planned_duration_minutes || null
+  ).run();
+
+  const newAppointmentId = Number(inserted.meta.last_row_id);
+
+  try {
+    await env.DB.prepare(`
+      INSERT INTO assistant_appointment_state (appointment_id)
+      VALUES (?)
+    `).bind(newAppointmentId).run();
+
+    const updated = await env.DB.prepare(`
+      UPDATE appointments
+      SET status = 'rescheduled',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND status IN ('scheduled', 'waiting')
+    `).bind(Number(appointment.id)).run();
+
+    if (!updated.meta?.changes) {
+      throw new Error("Исходная запись изменилась во время переноса.");
+    }
+  } catch (error) {
+    await env.DB.prepare(`
+      DELETE FROM appointments WHERE id = ?
+    `).bind(newAppointmentId).run();
+
+    await deleteSession(env, chatId);
+
+    await sendMessage(
+      env,
+      chatId,
+      "Не удалось завершить перенос. Проверь очередь: исходная запись сохранена, незавершённая новая запись удалена."
+    );
+    console.error("Appointment reschedule failed:", error);
+    return;
+  }
+
+  await deleteSession(env, chatId);
+
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Запись перенесена.\n\n` +
+      `Питомец: ${appointment.name}\n` +
+      `Новая дата: ${targetDate.split("-").reverse().join(".")}\n` +
+      `Новое время: ${targetTime}`
+  );
+
+  await showDailyQueue(env, chatId);
+}
 async function handleCallback(env, callback) {
   const chatId = callback.message?.chat?.id;
   const data = callback.data || "";
@@ -3062,6 +3345,13 @@ if (data.startsWith("cancel_queue:")) {
     env,
     chatId,
     data.slice("cancel_queue:".length)
+  );
+}
+  if (data.startsWith("reschedule_queue:")) {
+  return startAppointmentReschedule(
+    env,
+    chatId,
+    data.slice("reschedule_queue:".length)
   );
 }
   if (data === "visits") return listVisits(env, chatId);
