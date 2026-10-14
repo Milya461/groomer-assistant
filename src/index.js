@@ -254,6 +254,16 @@ async function initializeDatabase(env) {
         REFERENCES appointments(id) ON DELETE CASCADE
     )
   `).run();
+  try {
+    await env.DB.prepare(`
+      ALTER TABLE dogs
+      ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0
+    `).run();
+  } catch (error) {
+    if (!String(error?.message || error).includes("duplicate column name")) {
+      throw error;
+    }
+  }
   const initialShifts = [
     "2026-10-15",
     "2026-10-16",
