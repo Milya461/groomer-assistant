@@ -606,36 +606,8 @@ async function searchPets(env, chatId, query) {
   );
 }
 
-
 async function findPets(env, chatId, query) {
   await searchPets(env, chatId, query);
-}
-
-  const result = await env.DB.prepare(`
-    SELECT * FROM dogs
-    WHERE name LIKE ? COLLATE NOCASE OR breed LIKE ? COLLATE NOCASE
-    ORDER BY name COLLATE NOCASE
-    LIMIT 20
-  `).bind(`%${query}%`, `%${query}%`).all();
-
-  const pets = result.results || [];
-
-  if (!pets.length) {
-    await sendMessage(env, chatId, `По запросу «${query}» ничего не найдено.`);
-    return;
-  }
-
-  await sendMessage(
-    env,
-    chatId,
-    "🔎 Найдены питомцы:",
-    {
-      inline_keyboard: pets.map(pet => [{
-        text: `📋 Открыть карточку: ${pet.name}`,
-        callback_data: `pet:${pet.id}`
-      }])
-    }
-  );
 }
 
 async function findByPlainName(env, chatId, query) {
