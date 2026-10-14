@@ -152,16 +152,12 @@ function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "📅 Очередь на сегодня", callback_data: "queue" },
-        { text: "🐾 Питомцы", callback_data: "pets" }
+        { text: "📅 Рабочий день", callback_data: "workday" },
+        { text: "🐾 Питомцы", callback_data: "pets_menu" }
       ],
       [
-        { text: "📋 Визиты в работе", callback_data: "visits" },
-        { text: "➕ Добавить питомца", callback_data: "add" }
-      ],
-      [
-        { text: "➕ Услуга без записи", callback_data: "plus" },
-        { text: "💰 Мой заработок", callback_data: "earnings" }
+        { text: "💰 Мой заработок", callback_data: "earnings" },
+        { text: "❔ Помощь", callback_data: "help" }
       ]
     ]
   };
@@ -1569,6 +1565,48 @@ async function earningsMonth(env, chatId) {
     mainKeyboard()
   );
 }
+async function showWorkdayMenu(env, chatId) {
+  await sendMessage(
+    env,
+    chatId,
+    "📅 Рабочий день\n\nВыбери нужное действие:",
+    {
+      inline_keyboard: [
+        [
+          { text: "📋 Очередь на сегодня", callback_data: "queue" }
+        ],
+        [
+          { text: "🐾 Начать визит", callback_data: "visit_choose" },
+          { text: "✂️ Визиты в работе", callback_data: "visits" }
+        ],
+        [
+          { text: "🏠 Главное меню", callback_data: "home" }
+        ]
+      ]
+    }
+  );
+}
+
+async function showPetsMenu(env, chatId) {
+  await sendMessage(
+    env,
+    chatId,
+    "🐾 Питомцы\n\nВыбери действие.\n\nЧтобы найти питомца по имени, используй команду /find имя.",
+    {
+      inline_keyboard: [
+        [
+          { text: "📋 Список питомцев", callback_data: "pets" }
+        ],
+        [
+          { text: "➕ Добавить питомца", callback_data: "add" }
+        ],
+        [
+          { text: "🏠 Главное меню", callback_data: "home" }
+        ]
+      ]
+    }
+  );
+}
 
 async function showEarningsMenu(env, chatId) {
   await sendMessage(
@@ -1719,7 +1757,22 @@ async function handleCallback(env, callback) {
 
   if (!chatId) return;
 
-  if (data === "home") return sendMessage(env, chatId, "Главное меню 🐾", mainKeyboard());
+  if (data === "home") {
+  return sendMessage(env, chatId, "Главное меню 🐾", mainKeyboard());
+  }
+
+  if (data === "workday") {
+  return showWorkdayMenu(env, chatId);
+  }
+
+  if (data === "pets_menu") {
+  return showPetsMenu(env, chatId);
+  }
+
+  if (data === "help") {
+  return sendMessage(env, chatId, HELP_TEXT, mainKeyboard());
+  }
+
   if (data === "pets") return listPets(env, chatId);
   if (data === "queue") return showDailyQueue(env, chatId);
   if (data === "visits") return listVisits(env, chatId);
