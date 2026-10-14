@@ -1203,7 +1203,9 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
     pet.breed ? `Порода: ${pet.breed}` : null,
     `Начало: ${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)} ${appointment?.actual_start_time || now}`,
     "",
-    "Перед работой не забудь сделать фото ДО.",
+    shouldHavePhotoArchive(pet)
+      ? "Перед работой не забудь сделать фото ДО."
+      : null,
     "После визита можно сохранить услуги и заработок.",
     "",
     "Плановое время можно указать кнопкой ниже."
