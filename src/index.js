@@ -661,12 +661,14 @@ async function showPet(env, chatId, id) {
 
   if (/^\d+$/.test(String(id))) {
     pet = await env.DB.prepare(`
-      SELECT * FROM dogs WHERE id = ?
+      SELECT * FROM dogs
+      WHERE id = ? AND COALESCE(is_temporary, 0) = 0
     `).bind(Number(id)).first();
   } else {
     pet = await env.DB.prepare(`
       SELECT * FROM dogs
       WHERE name = ? COLLATE NOCASE
+        AND COALESCE(is_temporary, 0) = 0
       ORDER BY id LIMIT 1
     `).bind(String(id)).first();
   }
