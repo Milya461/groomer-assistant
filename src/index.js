@@ -1371,10 +1371,12 @@ async function beginPlus(env, chatId) {
 }
 
 function rateForUnscheduled(description) {
-  const name = description.toLowerCase().replace(/ё/g, “е”);
+  const name = description.toLowerCase().replace(/ё/g, "е");
+
   if (/когт|коготк/.test(name)) return 100;
   if (/параанальн/.test(name)) return 100;
   if (/чаев/.test(name)) return 100;
+
   return 35;
 }
 async function savePlusEarnings(env, chatId, input) {
