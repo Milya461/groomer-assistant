@@ -624,6 +624,7 @@ async function listPets(env, chatId) {
   const result = await env.DB.prepare(`
     SELECT id, name, species, breed
     FROM dogs
+    WHERE COALESCE(is_temporary, 0) = 0
     ORDER BY name COLLATE NOCASE, id
     LIMIT 50
   `).all();
