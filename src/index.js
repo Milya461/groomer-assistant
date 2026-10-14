@@ -595,7 +595,7 @@ async function showPet(env, chatId, id) {
         ]
       }
     );
-
+}
 async function searchPets(env, chatId, query) {
   const normalizedQuery = String(query || "")
     .trim()
