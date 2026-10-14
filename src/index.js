@@ -716,12 +716,25 @@ async function findByPlainName(env, chatId, query) {
   await searchPets(env, chatId, query);
 }
 
+function extractQueueBreed(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^сегодня\s+/i, "");
+
+  const match = normalized.match(
+    /^(йоркширский терьер|йорк|мальтипу|шпиц|пудель|мальтезе|бишон|ши-тцу|пекинес|гриффон|чихуахуа|мопс|такса|спаниель|джек-рассел|бульдог)\s+/i
+  );
+
+  return match ? match[1] : "";
+}
+
 function cleanQueueName(value) {
-  return value
+  return String(value || "")
     .replace(/^[\s,;—–-]+|[\s,;—–-]+$/g, "")
+    .replace(/^сегодня\s+/i, "")
     .replace(/^в\s+/i, "")
     .replace(/\s+в$/i, "")
-    .replace(/^(собака|пёс|пес|шпиц|йорк|пудель|мальтипу|кошка|кот)\s+/i, "")
+    .replace(/^(собака|пёс|пес|шпиц|йоркширский терьер|йорк|пудель|мальтипу|мальтезе|бишон|ши-тцу|пекинес|гриффон|чихуахуа|мопс|такса|спаниель|джек-рассел|бульдог|кошка|кот)\s+/i, "")
     .trim();
 }
 
@@ -777,8 +790,11 @@ function parseDailyQueue(input) {
       };
     }
 
-    entries.push({ time: current.time, name });
-  }
+  entries.push({
+    time: current.time,
+    name,
+    breed: extractQueueBreed(rawName)
+  });
 
   entries.sort((a, b) => a.time.localeCompare(b.time));
 
@@ -795,27 +811,28 @@ async function resolvePetByQueueName(env, queueName) {
   const result = await env.DB.prepare(`
     SELECT id, name, species, breed
     FROM dogs
+    WHERE COALESCE(is_temporary, 0) = 0
     ORDER BY name COLLATE NOCASE
   `).all();
 
   const pets = result.results || [];
-  const q = queueName.toLocaleLowerCase("ru-RU").trim();
+  const q = String(queueName || "").toLocaleLowerCase("ru-RU").trim();
 
-  const exact = pets.filter(p => p.name.toLocaleLowerCase("ru-RU") === q);
+  const exact = pets.filter(
+    p => p.name.toLocaleLowerCase("ru-RU") === q
+  );
   if (exact.length === 1) return exact[0];
 
   const suffix = pets.filter(p => {
     const name = p.name.toLocaleLowerCase("ru-RU");
     return q.endsWith(name);
   });
-
   if (suffix.length === 1) return suffix[0];
 
   const contains = pets.filter(p => {
     const name = p.name.toLocaleLowerCase("ru-RU");
     return q.includes(name);
   });
-
   if (contains.length === 1) return contains[0];
 
   return null;
@@ -848,27 +865,40 @@ async function createDailyQueue(env, chatId, input) {
   }
 
   const resolved = [];
-  const missing = [];
 
   for (const entry of parsed.entries) {
-    const pet = await resolvePetByQueueName(env, entry.name);
+    const pet = await resolvePetByQueueName(env, entry.name
+);
 
-    if (!pet) {
-      missing.push(entry.name);
-    } else {
-      resolved.push({ ...entry, pet });
+    if (pet) {
+      resolved.push({
+        ...entry,
+        pet,
+        temporary: false
+      });
+      continue;
     }
-  }
 
-  if (missing.length) {
-    await sendMessage(
-      env,
-      chatId,
-      "Не нашла карточки для этих имён:\n\n" +
-        missing.map(name => `• ${name}`).join("\n") +
-        "\n\nСоздай карточки командой /add, затем отправь расписание ещё раз. Ничего из очереди пока не сохранено."
-    );
-    return;
+    const breed = entry.breed || null;
+
+    const result = await env.DB.prepare(`
+      INSERT INTO dogs (
+        name, species, breed, is_temporary
+      ) VALUES (?, 'dog', ?, 1)
+    `).bind(entry.name
+, breed).run();
+
+    resolved.push({
+      ...entry,
+      pet: {
+        id: result.meta.last_row_id,
+        name: entry.name
+,
+        species: "dog",
+        breed
+      },
+      temporary: true
+    });
   }
 
   for (let i = 0; i < resolved.length; i++) {
@@ -880,7 +910,8 @@ async function createDailyQueue(env, chatId, input) {
         queue_position, status, procedures
       ) VALUES (?, ?, ?, ?, 'scheduled', '')
     `).bind(
-      entry.pet.id,
+      entry.pet.id
+,
       date,
       entry.time,
       i + 1
@@ -896,8 +927,10 @@ async function createDailyQueue(env, chatId, input) {
     env,
     chatId,
     "✅ Очередь на сегодня сохранена!\n\n" +
-      resolved.map((entry, i) =>
-        `${i + 1}. ${entry.time} — ${entry.pet.name}${entry.pet.breed ? ` (${entry.pet.breed})` : ""}`
+      resolved.map
+((entry, i) =>
+        `${i + 1}. ${entry.time} — ${entry.pet.name
+}${entry.pet.breed ? ` (${entry.pet.breed})` : ""}${entry.temporary ? " · без карточки" : ""}`
       ).join("\n") +
       "\n\nВ назначенное время я спрошу, пришёл ли клиент. Будущие даты не создаются.",
     mainKeyboard()
@@ -2116,16 +2149,97 @@ async function handleArrival(env, chatId, appointmentId) {
   }
 
   if (appointment.status === "in_progress") {
-    await sendMessage(env, chatId, `${appointment.name} уже в работе.`);
+    await sendMessage(env, chatId, `${appointment.name
+} уже в работе.`);
     return;
   }
 
-  if (appointment.status === "completed") {
-    await sendMessage(env, chatId, "Этот визит уже завершён.");
+  if (["completed", "cancelled", "skipped"].includes(appointment.status)) {
+    await sendMessage(env, chatId, "Эту запись уже нельзя запустить.");
     return;
   }
 
-  await startVisit(env, chatId, appointment.dog_id, appointment.id);
+  const result = await env.DB.prepare(`
+    SELECT id, name, breed
+    FROM dogs
+    WHERE COALESCE(is_temporary, 0) = 0
+    ORDER BY name COLLATE NOCASE
+    LIMIT 50
+  `).all();
+
+  const pets = result.results || [];
+  const keyboard = pets.map
+(pet => [{
+    text: `${pet.name
+}${pet.breed ? " — " + pet.breed : ""}`,
+    callback_data: `arrivalpet:${appointmentId}:${pet.id
+}`
+  }]);
+
+  keyboard.push([{
+    text: "➕ Нет карточки",
+    callback_data: `arrivalnone:${appointmentId}`
+  }]);
+
+  await sendMessage(
+    env,
+    chatId,
+    `🐾  Кто пришёл на запись ${appointment.appointment_time || ""}?\n\n` +
+      `По очереди: ${appointment.name
+}` +
+      (appointment.breed ? ` (${appointment.breed})` : "") +
+      "\n\nВыбери существующую карточку или нажми «Нет карточки».",
+    { inline_keyboard: keyboard }
+  );
+}
+
+async function handleArrivalWithPet(env, chatId, appointmentId, petId) {
+  const appointment = await getPetForAppointment(env, appointmentId);
+
+  if (!appointment) {
+    await sendMessage(env, chatId, "Запись не найдена.");
+    return;
+  }
+
+  const pet = await env.DB.prepare(`
+    SELECT id, is_temporary
+    FROM dogs
+    WHERE id = ?
+  `).bind(Number(petId)).first();
+
+  if (!pet || Number(pet.is_temporary || 0) === 1) {
+    await sendMessage(env, chatId, "Карточка не найдена. Выбери питомца ещё раз.");
+    return;
+  }
+
+  if (!["scheduled", "waiting"].includes(appointment.status)) {
+    await sendMessage(env, chatId, "Статус записи уже изменился. Проверь очередь.");
+    return;
+  }
+
+  await env.DB.prepare(`
+    UPDATE appointments
+    SET dog_id = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(Number(petId), Number(appointmentId)).run();
+
+  await startVisit(env, chatId, Number(petId), Number(appointmentId));
+}
+
+async function handleArrivalWithoutCard(env, chatId, appointmentId) {
+  const appointment = await getPetForAppointment(env, appointmentId);
+
+  if (!appointment) {
+    await sendMessage(env, chatId, "Запись не найдена.");
+    return;
+  }
+
+  if (!["scheduled", "waiting"].includes(appointment.status)) {
+    await sendMessage(env, chatId, "Статус записи уже изменился. Проверь очередь.");
+    return;
+  }
+
+  await startVisit(env, chatId, appointment.dog_id, Number(appointmentId));
 }
 
 async function handleNotArrived(env, chatId, appointmentId) {
@@ -2319,7 +2433,18 @@ if (data.startsWith("cancel_queue:")) {
   if (data.startsWith("arrived:")) {
     return handleArrival(env, chatId, data.slice(8));
   }
+  if (data.startsWith("arrivalpet:")) {
+    const [, appointmentId, petId] = data.split(":");
+    return handleArrivalWithPet(env, chatId, appointmentId, petId);
+  }
 
+  if (data.startsWith("arrivalnone:")) {
+    return handleArrivalWithoutCard(
+      env,
+      chatId,
+      data.slice("arrivalnone:".length)
+    );
+   }
   if (data.startsWith("absent:")) {
     return handleNotArrived(env, chatId, data.slice(7));
   }
