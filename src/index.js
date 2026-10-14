@@ -983,7 +983,7 @@ async function showDailyQueue(env, chatId, remainingOnly = false) {
 
 async function getPetForAppointment(env, appointmentId) {
   return env.DB.prepare(`
-    SELECT a.*, d.name, d.breed, d.species, d.warnings,
+    SELECT a.*, d.name, d.breed, d.species, d.coat_features, d.warnings,
            d.sensitive_areas, d.clipper_reaction, d.dryer_reaction,
            d.nail_clipper_reaction, d.notes AS pet_notes
     FROM appointments a
@@ -996,6 +996,11 @@ async function startPhotoCapture(env, chatId, appointmentId, photoType) {
 
   if (!visit || !["in_progress", "completed"].includes(visit.status)) {
     await sendMessage(env, chatId, "Не удалось найти подходящий визит для фотографии.");
+    return;
+  }
+
+  if (!shouldHavePhotoArchive(visit)) {
+    await sendMessage(env, chatId, "Для этого питомца фотоархив не предусмотрен.");
     return;
   }
 
@@ -1495,9 +1500,18 @@ async function saveVisitEarnings(env, chatId, session, input) {
   }
 
   const visit = await env.DB.prepare(`
-    SELECT id, status, appointment_date, actual_start_time
-    FROM appointments
-    WHERE id = ?
+    SELECT
+      a.id,
+      a.status,
+      a.appointment_date,
+      a.actual_start_time,
+      a.appointment_time,
+      d.species,
+      d.breed,
+      d.coat_features
+    FROM appointments a
+    JOIN dogs d ON d.id = a.dog_id
+    WHERE a.id = ?
   `).bind(session.appointmentId).first();
 
   if (!visit || visit.status !== "in_progress") {
@@ -1564,12 +1578,14 @@ async function saveVisitEarnings(env, chatId, session, input) {
         `💰 Твой заработок за визит: ${money(totalEarned)}`,
       {
         inline_keyboard: [
-          [
-            {
-              text: "📸  Сохранить фото ПОСЛЕ",
-              callback_data: `photo_after:${session.appointmentId}`
-            }
-          ],
+          ...(shouldHavePhotoArchive(visit)
+            ? [[
+                {
+                  text: "📸  Сохранить фото ПОСЛЕ",
+                  callback_data: `photo_after:${session.appointmentId}`
+                }
+              ]]
+            : []),
           [
             { text: "🏠 Главное меню", callback_data: "home" }
           ]
