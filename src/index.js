@@ -2456,9 +2456,49 @@ async function handleArrivalWithoutCard(env, chatId, appointmentId) {
     return;
   }
 
-  await startVisit(env, chatId, appointment.dog_id, Number(appointmentId));
-}
+  let pet = await env.DB.prepare(`
+    SELECT id, name, species, breed, is_temporary
+    FROM dogs
+    WHERE id = ?
+  `).bind(Number(appointment.dog_id)).first();
 
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена. Проверь очередь.");
+    return;
+  }
+
+  if (Number(pet.is_temporary || 0) !== 1) {
+    const result = await env.DB.prepare(`
+      INSERT INTO dogs (name, species, breed, is_temporary)
+      VALUES (?, ?, ?, 1)
+    `).bind(
+      pet.name
+,
+      pet.species || "dog",
+      pet.breed || null
+    ).run();
+
+    const temporaryPetId = Number(result.meta.last_row_id);
+
+    await env.DB.prepare(`
+      UPDATE appointments
+      SET dog_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status IN ('scheduled', 'waiting')
+    `).bind(temporaryPetId, Number(appointmentId)).run();
+
+    pet = {
+      id: temporaryPetId,
+      name: pet.name
+,
+      species: pet.species || "dog",
+      breed: pet.breed,
+      is_temporary: 1
+    };
+  }
+
+  await startVisit(env, chatId, Number(pet.id
+), Number(appointmentId));
+}
 async function handleNotArrived(env, chatId, appointmentId) {
   const appointment = await getPetForAppointment(env, appointmentId);
 
