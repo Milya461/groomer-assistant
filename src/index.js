@@ -1652,6 +1652,11 @@ async function showPet(env, chatId, id) {
       text: "▶️  Начать визит",
       callback_data: `visit:${pet.id
 }`
+    }],
+    [{
+      text: "⏱ Время по датам",
+      callback_data: `pet_time:${pet.id
+}`
     }]
   ];
 
@@ -1678,7 +1683,93 @@ async function showPet(env, chatId, id) {
     { inline_keyboard: keyboard }
   );
 }
+async function showPetTimeHistory(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name, breed
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
 
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT
+      appointment_date,
+      COUNT(*) AS visits_count,
+      COUNT(actual_duration_minutes) AS timed_visits_count,
+      SUM(actual_duration_minutes) AS total_minutes
+    FROM appointments
+    WHERE dog_id = ?
+      AND status = 'completed'
+    GROUP BY appointment_date
+    ORDER BY appointment_date DESC
+    LIMIT 30
+  `).bind(Number(dogId)).all();
+
+  const dates = result.results || [];
+
+  if (!dates.length) {
+    await sendMessage(
+      env,
+      chatId,
+      `⏱ История времени: ${pet.name
+}\n\nЗавершённых визитов пока нет.`,
+      {
+        inline_keyboard: [[
+          {
+            text: "⬅️  Карточка питомца",
+            callback_data: `pet:${pet.id
+}`
+          }
+        ]]
+      }
+    );
+    return;
+  }
+
+  const lines = dates.map
+(row => {
+    const date = row.appointment_date || "";
+    const formattedDate = date.length >= 10
+      ? `${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)}`
+      : date;
+
+    let duration = "время не сохранено";
+
+    if (row.timed_visits_count > 0) {
+      duration = formatDuration(row.total_minutes);
+
+      if (row.timed_visits_count < row.visits_count) {
+        duration += "\\n⚠️  Не у всех визитов за эту дату сохранено время";
+      }
+    }
+
+    return `${formattedDate} — ${duration}`;
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    `⏱ Время по датам: ${pet.name
+}` +
+      `${pet.breed ? ` (${pet.breed})` : ""}\n\n` +
+      lines.join("\n\n") +
+      "\n\nПоказаны последние 30 дат с завершёнными визитами.",
+    {
+      inline_keyboard: [[
+        {
+          text: "⬅️  Карточка питомца",
+          callback_data: `pet:${pet.id
+}`
+        }
+      ]]
+    }
+  );
+}
 async function startVisit(env, chatId, petId, appointmentId = null) {
   const pet = await env.DB.prepare(`
     SELECT * FROM dogs WHERE id = ?
@@ -3575,6 +3666,13 @@ if (data.startsWith("cancel_queue:")) {
   if (data.startsWith("pet:")) {
     return showPet(env, chatId, data.slice(4));
   }
+  if (data.startsWith("pet_time:")) {
+  return showPetTimeHistory(
+    env,
+    chatId,
+    data.slice("pet_time:".length)
+  );
+}
   if (data.startsWith("pet_edit:")) {
     return startPetEdit(
       env,
