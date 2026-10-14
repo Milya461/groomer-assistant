@@ -1204,10 +1204,6 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
     lines.push(`Когти: ${pet.nail_clipper_reaction}`);
   }
 
-  await sendMessage(
-    env,
-    chatId,
-    lines.join("\n"),
     const keyboard = [
     [
       { text: "⏱ Указать плановое время", callback_data: `duration:${id}` }
