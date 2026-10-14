@@ -803,6 +803,210 @@ async function showPet(env, chatId, id) {
     { inline_keyboard: keyboard }
   );
 }
+
+const GROOMING_CARD_FIELDS = [
+  {
+    key: "body_length",
+    label: "Длина корпуса",
+    prompt: "Укажи длину шерсти на корпусе."
+  },
+  {
+    key: "legs_length",
+    label: "Длина лап",
+    prompt: "Укажи длину шерсти на лапах."
+  },
+  {
+    key: "face_length",
+    label: "Длина морды",
+    prompt: "Укажи длину шерсти на морде."
+  },
+  {
+    key: "tail_length",
+    label: "Длина хвоста",
+    prompt: "Укажи длину шерсти на хвосте."
+  },
+  {
+    key: "head_shape",
+    label: "Форма головы",
+    prompt: "Опиши желаемую форму головы."
+  },
+  {
+    key: "paws_shape",
+    label: "Форма лап",
+    prompt: "Опиши желаемую форму лап."
+  },
+  {
+    key: "attachments",
+    label: "Насадки",
+    prompt: "Укажи используемые насадки."
+  },
+  {
+    key: "blades",
+    label: "Ножи",
+    prompt: "Укажи используемые ножи."
+  },
+  {
+    key: "owner_preferences",
+    label: "Пожелания владельца",
+    prompt: "Запиши постоянные пожелания владельца."
+  },
+  {
+    key: "next_visit_changes",
+    label: "Изменения к следующему визиту",
+    prompt: "Что нужно изменить в следующий раз?"
+  }
+];
+
+async function showGroomingCard(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT *
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  if (pet.species !== "dog") {
+    await sendMessage(
+      env,
+      chatId,
+      "Карта стрижки доступна только для собак."
+    );
+    return;
+  }
+
+  const card = await getGroomingCard(env, pet.id);
+
+  await sendMessage(
+    env,
+    chatId,
+    `🐾 ${pet.name}\n\n${formatGroomingCard(card)}`,
+    {
+      inline_keyboard: [
+        [{
+          text: "📝 Заполнить / изменить",
+          callback_data: `grooming_edit:${pet.id}`
+        }],
+        [{
+          text: "⬅️ Карточка питомца",
+          callback_data: `pet:${pet.id}`
+        }]
+      ]
+    }
+  );
+}
+
+async function startGroomingCardEdit(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name, species
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  if (pet.species !== "dog") {
+    await sendMessage(
+      env,
+      chatId,
+      "Карта стрижки доступна только для собак."
+    );
+    return;
+  }
+
+  const existing = await getGroomingCard(env, pet.id);
+  const data = {};
+
+  for (const field of GROOMING_CARD_FIELDS) {
+    data[field.key] = existing?.[field.key] || "";
+  }
+
+  await saveSession(env, chatId, {
+    type: "grooming_card",
+    dogId: pet.id,
+    dogName: pet.name,
+    step: 0,
+    data
+  });
+
+  const field = GROOMING_CARD_FIELDS[0];
+
+  await sendMessage(
+    env,
+    chatId,
+    `✂️ Карта стрижки: ${pet.name}\n\n` +
+      `${field.prompt}\n` +
+      `Сейчас: ${data[field.key] || "не указано"}\n\n` +
+      "Отправь новое значение или /skip, чтобы оставить прежнее.\n" +
+      "Для отмены введи /cancel."
+  );
+}
+
+async function processGroomingCardInput(env, chatId, input, session) {
+  const field = GROOMING_CARD_FIELDS[session.step];
+
+  if (!field) {
+    await deleteSession(env, chatId);
+    await sendMessage(
+      env,
+      chatId,
+      "Не удалось определить поле карты. Открой карту стрижки ещё раз."
+    );
+    return;
+  }
+
+  const value = input.trim();
+
+  if (value !== "/skip") {
+    if (!value) {
+      await sendMessage(
+        env,
+        chatId,
+        "Поле не может быть пустым. Введи значение или /skip."
+      );
+      return;
+    }
+
+    session.data[field.key] = value;
+  }
+
+  session.step += 1;
+
+  if (session.step < GROOMING_CARD_FIELDS.length) {
+    const nextField = GROOMING_CARD_FIELDS[session.step];
+
+    await saveSession(env, chatId, session);
+
+    await sendMessage(
+      env,
+      chatId,
+      `${nextField.prompt}\n` +
+        `Сейчас: ${session.data[nextField.key] || "не указано"}\n\n` +
+        "Отправь новое значение или /skip, чтобы оставить прежнее."
+    );
+    return;
+  }
+
+  await saveGroomingCard(env, session.dogId, session.data);
+  await deleteSession(env, chatId);
+
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Карта стрижки «${session.dogName}» сохранена.`
+  );
+
+  await showGroomingCard(env, chatId, session.dogId);
+}
+
 async function searchPets(env, chatId, query) {
   const normalizedQuery = String(query || "")
     .trim()
@@ -1259,81 +1463,59 @@ async function saveVisitPhoto(env, chatId, session, message) {
   );
 }
 
-async function showPetPhotoHistory(env, chatId, petId) {
-  const pet = await env.DB.prepare(`
-    SELECT id, name, species, breed, coat_features
-    FROM dogs
-    WHERE id = ?
-      AND COALESCE(is_temporary, 0) = 0
-  `).bind(Number(petId)).first();
+
+async function showPet(env, chatId, id) {
+  let pet;
+
+  if (/^\d+$/.test(String(id))) {
+    pet = await env.DB.prepare(`
+      SELECT * FROM dogs
+      WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+    `).bind(Number(id)).first();
+  } else {
+    pet = await env.DB.prepare(`
+      SELECT * FROM dogs
+      WHERE name = ? COLLATE NOCASE
+        AND COALESCE(is_temporary, 0) = 0
+      ORDER BY id
+      LIMIT 1
+    `).bind(String(id)).first();
+  }
 
   if (!pet) {
-    await sendMessage(env, chatId, "Питомец не найден.");
+    await sendMessage(env, chatId, `Питомец «${id}» не найден.`);
     return;
   }
-  if (!shouldHavePhotoArchive(pet)) {
-    await sendMessage(
-      env,
-      chatId,
-      "Для этого питомца фотоархив не предусмотрен.",
-      mainKeyboard()
-    );
-    return;
+
+  const keyboard = [
+    [{
+      text: "▶️ Начать визит",
+      callback_data: `visit:${pet.id}`
+    }]
+  ];
+
+  if (pet.species === "dog") {
+    keyboard.push([{
+      text: "✂️ Карта стрижки",
+      callback_data: `grooming_card:${pet.id}`
+    }]);
   }
-  const result = await env.DB.prepare(`
-    SELECT
-      p.telegram_file_id,
-      p.photo_type,
-      p.caption,
-      p.created_at,
-      a.appointment_date,
-      a.id
- AS appointment_id
-    FROM visit_photos p
-    JOIN appointments a ON a.id
- = p.appointment_id
-    WHERE a.dog_id = ?
-    ORDER BY a.appointment_date DESC, p.id
- DESC
-    LIMIT 10
-  `).bind(Number(petId)).all();
 
-  const photos = result.results || [];
-
-  if (!photos.length) {
-    await sendMessage(
-      env,
-      chatId,
-      `🖼 В истории «${pet.name
-}» пока нет фотографий.`,
-      mainKeyboard()
-    );
-    return;
+  if (shouldHavePhotoArchive(pet)) {
+    keyboard.push([{
+      text: "🖼 История фотографий",
+      callback_data: `photos:${pet.id}`
+    }]);
   }
 
   await sendMessage(
     env,
     chatId,
-    `🖼 Фотоархив: ${pet.name
-}\n\nПоследние фотографии по визитам:`
+    formatPet(pet),
+    { inline_keyboard: keyboard }
   );
-
-  for (const item of photos) {
-    const label = item.photo_type === "before" ? "ДО" : "ПОСЛЕ";
-    const date = item.appointment_date || item.created_at;
-
-    await telegram(env, "sendPhoto", {
-      chat_id: chatId,
-      photo: item.telegram_file_id,
-      caption:
-        `${pet.name
-} · ${label}\n` +
-        `Дата визита: ${date}\n` +
-        `Визит №${item.appointment_id}` +
-        (item.caption ? `\n${item.caption}` : "")
-    });
-  }
 }
+
 async function startVisit(env, chatId, petId, appointmentId = null) {
   const pet = await env.DB.prepare(`
     SELECT * FROM dogs WHERE id = ?
@@ -2463,6 +2645,10 @@ async function processWorkSchedule(env, chatId, input) {
 }
 
 async function processSession(env, chatId, input, session) {
+  if (session.type === "grooming_card") {
+    await processGroomingCardInput(env, chatId, input, session);
+    return;
+  }
   if (session.type === "visit_without_card") {
     await processVisitWithoutCard(env, chatId, input);
     return;
@@ -2856,7 +3042,21 @@ if (data.startsWith("cancel_queue:")) {
   if (data.startsWith("pet:")) {
     return showPet(env, chatId, data.slice(4));
   }
+  if (data.startsWith("grooming_card:")) {
+    return showGroomingCard(
+      env,
+      chatId,
+      data.slice("grooming_card:".length)
+    );
+  }
 
+  if (data.startsWith("grooming_edit:")) {
+    return startGroomingCardEdit(
+      env,
+      chatId,
+      data.slice("grooming_edit:".length)
+    );
+  }
   if (data.startsWith("visit:")) {
     return startVisit(env, chatId, data.slice(6));
   }
