@@ -9,3 +9,6 @@ ENVIRONMENT = "production"
 binding = "DB"
 database_name = "groomer-assistant-db"
 database_id = "964f54df-a07d-4644-98aa-fc78146adf3c"
+
+[triggers]
+crons = ["* * * * *"]
