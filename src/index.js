@@ -1599,7 +1599,154 @@ function parseServiceLines(input) {
 
   return { services };
 }
+async function promptTemporaryPetCard(env, chatId, appointmentId, petId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name, species, breed
+    FROM dogs
+    WHERE id = ? AND is_temporary = 1
+  `).bind(Number(petId)).first();
 
+  if (!pet) return;
+
+  const matches = await env.DB.prepare(`
+    SELECT id, name, species, breed
+    FROM dogs
+    WHERE is_temporary = 0
+      AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+    ORDER BY id
+    LIMIT 10
+  `).bind(pet.name
+).all();
+
+  const existingPets = matches.results || [];
+  const keyboard = [];
+
+  for (const existing of existingPets) {
+    keyboard.push([{
+      text: `📋 Использовать карточку: ${existing.name
+}${existing.breed ? " — " + existing.breed : ""}`,
+      callback_data: `tempattach:${appointmentId}:${existing.id
+}:${pet.id
+}`
+    }]);
+  }
+
+  keyboard.push([{
+    text: "➕ Заполнить карточку",
+    callback_data: `tempcreate:${appointmentId}:${pet.id
+}`
+  }]);
+
+  keyboard.push([{
+    text: "⏭ Заполнить позже",
+    callback_data: `tempskip:${pet.id
+}`
+  }]);
+
+  await sendMessage(
+    env,
+    chatId,
+    "🐾  Визит и заработок сохранены.\n\n" +
+      `Для питомца «${pet.name
+}» пока нет полной карточки.` +
+      (existingPets.length
+        ? "\n\nНашла карточку с таким именем. Можно привязать визит к ней или заполнить новую карточку."
+        : "\n\nМожно заполнить карточку сейчас или сделать это позже."),
+    { inline_keyboard: keyboard }
+  );
+}
+
+async function handleTemporaryPetAction(env, chatId, action, values) {
+  if (action === "create") {
+    const [appointmentId, petId] = values;
+
+    const pet = await env.DB.prepare(`
+      SELECT id, name, species, breed
+      FROM dogs
+      WHERE id = ? AND is_temporary = 1
+    `).bind(Number(petId)).first();
+
+    if (!pet) {
+      await sendMessage(env, chatId, "Временная карточка не найдена. Визит и заработок сохранены.");
+      return;
+    }
+
+    await saveSession(env, chatId, {
+      type: "add_pet",
+      step: 3,
+      data: {
+        name: pet.name
+,
+        species: pet.species || "собака",
+        breed: pet.breed || ""
+      },
+      temporaryPetId: Number(pet.id
+)
+    });
+
+    await sendMessage(
+      env,
+      chatId,
+      `🐾  Заполняем карточку «${pet.name
+}».\n` +
+        "Имя, вид и порода уже внесены.\n\n" +
+        `${STEPS[3].prompt}\n\n` +
+        "На необязательных шагах можно отправлять /skip."
+    );
+    return;
+  }
+
+  if (action === "skip") {
+    await sendMessage(
+      env,
+      chatId,
+      "Хорошо, временная карточка сохранена. Визит и заработок не потеряются. Полную карточку можно заполнить позже."
+    );
+    return;
+  }
+
+  if (action === "attach") {
+    const [appointmentId, existingPetId, temporaryPetId] = values;
+
+    const existing = await env.DB.prepare(`
+      SELECT id
+      FROM dogs
+      WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+    `).bind(Number(existingPetId)).first();
+
+    const temporary = await env.DB.prepare(`
+      SELECT id
+      FROM dogs
+      WHERE id = ? AND is_temporary = 1
+    `).bind(Number(temporaryPetId)).first();
+
+    if (!existing || !temporary) {
+      await sendMessage(env, chatId, "Не удалось привязать визит. Визит и заработок сохранены.");
+      return;
+    }
+
+    await env.DB.prepare(`
+      UPDATE appointments
+      SET dog_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(Number(existingPetId), Number(appointmentId)).run();
+
+    await env.DB.prepare(`
+      DELETE FROM dogs
+      WHERE id = ?
+        AND is_temporary = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM appointments WHERE dog_id = dogs.id
+        )
+    `).bind(Number(temporaryPetId)).run();
+
+    await sendMessage(
+      env,
+      chatId,
+      "✅ Визит привязан к существующей карточке. Записанные услуги и заработок сохранены."
+    );
+  }
+}
 async function saveVisitEarnings(env, chatId, session, input) {
   const parsed = parseServiceLines(input);
 
