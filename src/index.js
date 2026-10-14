@@ -1612,14 +1612,22 @@ async function showEarningsMenu(env, chatId) {
   await sendMessage(
     env,
     chatId,
-    "💰 Мой заработок\n\nВыбери период:",
+    "💰 Мой заработок\n\nВыбери действие:",
     {
       inline_keyboard: [
         [
-          { text: "Сегодня", callback_data: "today" },
-          { text: "Период", callback_data: "period" }
+          { text: "📅 Сегодня", callback_data: "today" },
+          { text: "📊 Период", callback_data: "period" }
         ],
-        [{ text: "Месяц", callback_data: "month" }]
+        [
+          { text: "🗓 Месяц", callback_data: "month" }
+        ],
+        [
+          { text: "➕ Услуга без записи", callback_data: "plus" }
+        ],
+        [
+          { text: "🏠 Главное меню", callback_data: "home" }
+        ]
       ]
     }
   );
