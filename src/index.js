@@ -2434,15 +2434,27 @@ async function handleArrivalWithPet(env, chatId, appointmentId, petId) {
     return;
   }
 
+  const previousPetId = Number(appointment.dog_id);
+
   await env.DB.prepare(`
     UPDATE appointments
     SET dog_id = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND status IN ('scheduled', 'waiting')
   `).bind(Number(petId), Number(appointmentId)).run();
+
+  if (previousPetId !== Number(petId)) {
+    await env.DB.prepare(`
+      DELETE FROM dogs
+      WHERE id = ?
+        AND is_temporary = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM appointments WHERE dog_id = dogs.id
+        )
+    `).bind(previousPetId).run();
+  }
 
   await startVisit(env, chatId, Number(petId), Number(appointmentId));
 }
-
 async function handleArrivalWithoutCard(env, chatId, appointmentId) {
   const appointment = await getPetForAppointment(env, appointmentId);
 
