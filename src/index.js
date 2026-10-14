@@ -1350,6 +1350,7 @@ async function choosePetForVisit(env, chatId) {
   const result = await env.DB.prepare(`
     SELECT id, name, breed
     FROM dogs
+    WHERE COALESCE(is_temporary, 0) = 0
     ORDER BY name COLLATE NOCASE
     LIMIT 50
   `).all();
