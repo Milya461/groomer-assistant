@@ -1208,19 +1208,27 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
     env,
     chatId,
     lines.join("\n"),
-    {
-      inline_keyboard: [
-        [
-          { text: "⏱ Указать плановое время", callback_data: `duration:${id}` }
-        ],
-        [
-          { text: "📸 Фото ДО сделано", callback_data: `photo_before:${id}` }
-        ],
-        [
-          { text: "✅ Завершить визит", callback_data: `finish:${id}` }
-        ]
-      ]
-    }
+    const keyboard = [
+    [
+      { text: "⏱ Указать плановое время", callback_data: `duration:${id}` }
+    ]
+  ];
+
+  if (shouldHavePhotoArchive(pet)) {
+    keyboard.push([
+      { text: "📸  Фото ДО сделано", callback_data: `photo_before:${id}` }
+    ]);
+  }
+
+  keyboard.push([
+    { text: "✅ Завершить визит", callback_data: `finish:${id}` }
+  ]);
+
+  await sendMessage(
+    env,
+    chatId,
+    lines.join("\n"),
+    { inline_keyboard: keyboard }
   );
 }
 
