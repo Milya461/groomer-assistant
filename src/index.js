@@ -722,6 +722,197 @@ async function processPetForm(env, chatId, input, session) {
     mainKeyboard()
   );
 }
+function petEditPrompt(session) {
+  const step = STEPS[session.step];
+
+  if (!step) return "";
+
+  const currentValue = step.key === "species"
+    ? displaySpecies(session.data.species, session.data.name
+)
+    : session.data
+[step.key];
+
+  return [
+    `✏️  Редактирование карточки «${session.data.name
+}»`,
+    "",
+    `Поле ${session.step + 1} из ${STEPS.length}:`,
+    step.prompt,
+    "",
+    `Текущее значение: ${currentValue || "не указано"}`,
+    "",
+    "Отправь новое значение.",
+    "/skip — оставить текущее значение.",
+    "/cancel — отменить редактирование."
+  ].join("\n");
+}
+
+async function startPetEdit(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT *
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  const data = {};
+
+  for (const step of STEPS) {
+    data[step.key] = pet[step.key] == null
+      ? ""
+      : String(pet[step.key]);
+  }
+
+  await saveSession(env, chatId, {
+    type: "edit_pet",
+    dogId: Number(pet.id
+),
+    step: 0,
+    data
+  });
+
+  await sendMessage(env, chatId, petEditPrompt({
+    dogId: Number(pet.id
+),
+    step: 0,
+    data
+  }));
+}
+
+async function processPetEdit(env, chatId, input, session) {
+  const step = STEPS[session.step];
+
+  if (!step) {
+    await deleteSession(env, chatId);
+    await sendMessage(
+      env,
+      chatId,
+      "Шаг редактирования не найден. Открой карточку и начни заново."
+    );
+    return;
+  }
+
+  const value = input.trim();
+
+  if (value !== "/skip") {
+    if (!value && !step.optional) {
+      await sendMessage(
+        env,
+        chatId,
+        "Это обязательное поле. Введи значение или отправь /skip, чтобы оставить прежнее."
+      );
+      return;
+    }
+
+    if (step.key === "name" && value.length > 100) {
+      await sendMessage(
+        env,
+        chatId,
+        "Имя слишком длинное. Используй не более 100 символов."
+      );
+      return;
+    }
+
+    if (step.key === "species") {
+      const species = parseSpecies(value);
+
+      if (!species) {
+        await sendMessage(
+          env,
+          chatId,
+          "Укажи «собака» или «кошка». Для сохранения текущего вида отправь /skip."
+        );
+        return;
+      }
+
+      session.data.species = species;
+    } else {
+      session.data
+[step.key] = value;
+    }
+  }
+
+  session.step += 1;
+
+  if (session.step < STEPS.length) {
+    await saveSession(env, chatId, session);
+    await sendMessage(env, chatId, petEditPrompt(session));
+    return;
+  }
+
+  const d = session.data
+;
+
+  try {
+    const result = await env.DB.prepare(`
+      UPDATE dogs
+      SET name = ?,
+          species = ?,
+          breed = ?,
+          age = ?,
+          coat_features = ?,
+          matting_tendency = ?,
+          sensitive_areas = ?,
+          clipper_reaction = ?,
+          dryer_reaction = ?,
+          nail_clipper_reaction = ?,
+          warnings = ?,
+          notes = ?
+      WHERE id = ?
+        AND COALESCE(is_temporary, 0) = 0
+    `).bind(
+      d.name
+,
+      d.species,
+      d.breed || null,
+      d.age || null,
+      d.coat_features || null,
+      d.matting_tendency || null,
+      d.sensitive_areas || null,
+      d.clipper_reaction || null,
+      d.dryer_reaction || null,
+      d.nail_clipper_reaction || null,
+      d.warnings || null,
+      d.notes || null,
+      Number(session.dogId)
+    ).run();
+
+    if (!result.meta?.changes) {
+      await deleteSession(env, chatId);
+      await sendMessage(
+        env,
+        chatId,
+        "Карточка не найдена или не обновлена. Проверь список питомцев."
+      );
+      return;
+    }
+
+    await deleteSession(env, chatId);
+
+    await sendMessage(
+      env,
+      chatId,
+      `✅ Карточка питомца «${d.name
+}» обновлена.`
+    );
+
+    await showPet(env, chatId, session.dogId);
+  } catch (error) {
+    console.error("Could not update pet card:", error);
+
+    await sendMessage(
+      env,
+      chatId,
+      "Не удалось сохранить карточку. Изменения не подтверждены. Повтори отправку последнего поля или используй /cancel."
+    );
+  }
+}
 
 async function listPets(env, chatId) {
   const result = await env.DB.prepare(`
@@ -1453,22 +1644,30 @@ async function showPet(env, chatId, id) {
 
   const keyboard = [
     [{
-      text: "▶️ Начать визит",
-      callback_data: `visit:${pet.id}`
+      text: "✏️  Изменить карточку",
+      callback_data: `pet_edit:${pet.id
+}`
+    }],
+    [{
+      text: "▶️  Начать визит",
+      callback_data: `visit:${pet.id
+}`
     }]
   ];
 
   if (pet.species === "dog") {
     keyboard.push([{
-      text: "✂️ Карта стрижки",
-      callback_data: `grooming_card:${pet.id}`
+      text: "✂️  Карта стрижки",
+      callback_data: `grooming_card:${pet.id
+}`
     }]);
   }
 
   if (shouldHavePhotoArchive(pet)) {
     keyboard.push([{
       text: "🖼 История фотографий",
-      callback_data: `photos:${pet.id}`
+      callback_data: `photos:${pet.id
+}`
     }]);
   }
 
@@ -2686,6 +2885,10 @@ async function processWorkSchedule(env, chatId, input) {
 }
 
 async function processSession(env, chatId, input, session) {
+  if (session.type === "edit_pet") {
+    await processPetEdit(env, chatId, input, session);
+    return;
+  }
   if (session.type === "reschedule_appointment") {
     await processAppointmentReschedule(env, chatId, input, session);
     return;
@@ -3371,6 +3574,13 @@ if (data.startsWith("cancel_queue:")) {
 
   if (data.startsWith("pet:")) {
     return showPet(env, chatId, data.slice(4));
+  }
+  if (data.startsWith("pet_edit:")) {
+    return startPetEdit(
+      env,
+      chatId,
+      data.slice("pet_edit:".length)
+    );
   }
   if (data.startsWith("grooming_card:")) {
     return showGroomingCard(
