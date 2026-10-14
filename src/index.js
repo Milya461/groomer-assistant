@@ -379,38 +379,42 @@ function displaySpecies(species, name = "") {
   return "Кошка 🐈";
 }
 function shouldHavePhotoArchive(pet) {
-  const species = String(pet.species || "").toLowerCase();
+  const species = String(pet.species || "")
+    .toLowerCase()
+    .trim();
+
+  if (species !== "dog") return false;
+
   const breed = String(pet.breed || "")
     .toLowerCase()
     .replace(/ё/g, "е")
-    .trim();
-  const coat = String(pet.coat_features || "")
-    .toLowerCase()
-    .replace(/ё/g, "е");
+    .replace(/[^a-zа-я0-9]/g, "");
 
-  if (species === "cat") return false;
-
-  const excludedBreeds = [
-    /мопс/,
-    /бигл/,
-    /корги/,
-    /бульдог/,
-    /такс/
+  const photoBreeds = [
+    "бишон",
+    "вестхайленд",
+    "вестхайлендуайттерьер",
+    "мальтезе",
+    "мальтийскаяболонка",
+    "пудель",
+    "шитцу",
+    "шитсу",
+    "ши-тцу",
+    "ши-тсу",
+    "гриффон",
+    "грифон",
+    "папильон",
+    "папийон",
+    "пекинес",
+    "пекинская",
+    "японскийхин",
+    "мальтипу",
+    "кокапу",
+    "кавапу",
+    "помапу"
   ];
 
-  if (excludedBreeds.some(pattern => pattern.test(breed))) {
-    return false;
-  }
-
-  if (/короткошерст|короткая шерсть|гладкошерст|гладкая шерсть/.test(coat)) {
-    return false;
-  }
-
-  if (/чихуахуа/.test(breed)) {
-    return /длинношерст|длинная шерсть/.test(coat);
-  }
-
-  return /длинношерст|длинная шерсть|стрижк|груминг|колтун/.test(coat);
+  return photoBreeds.some(name => breed.includes(name));
 }
 function parseSpecies(value) {
   const normalized = value.trim().toLowerCase();
