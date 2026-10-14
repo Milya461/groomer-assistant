@@ -828,17 +828,21 @@ async function clearDailyQueue(env, chatId) {
   );
 }
 
-async function showDailyQueue(env, chatId) {
+async function showDailyQueue(env, chatId, remainingOnly = false) {
   const date = localDate();
 
   const result = await env.DB.prepare(`
-    SELECT a.id, a.appointment_time, a.status, a.queue_position,
-           d.name, d.breed
+    SELECT a.id
+, a.appointment_time, a.status, a.queue_position,
+           d.name
+, d.breed
     FROM appointments a
-    JOIN dogs d ON d.id = a.dog_id
+    JOIN dogs d ON d.id
+ = a.dog_id
     WHERE a.appointment_date = ?
+      AND (? = 0 OR a.status IN ('scheduled', 'waiting', 'in_progress'))
     ORDER BY a.queue_position, a.appointment_time, a.id
-  `).bind(date).all();
+  `).bind(date, remainingOnly ? 1 : 0).all();
 
   const rows = result.results || [];
 
@@ -846,7 +850,9 @@ async function showDailyQueue(env, chatId) {
     await sendMessage(
       env,
       chatId,
-      "На сегодня очередь пока не создана.\n\nОтправь список, например:\n10:00 Месси, 12:30 Боня, 14:30 Дени",
+      remainingOnly
+        ? "✅ На сегодня больше нет активных записей."
+        : "На сегодня очередь пока не создана.\n\nОтправь список, например:\n10:00 Месси, 12:30 Боня, 14:30 Дени",
       mainKeyboard()
     );
     return;
@@ -1235,8 +1241,8 @@ function parseServiceLines(input) {
 
   for (const line of lines) {
     const match = line.match(
-      /^(.+?)\s+(\d+(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:лей|ля)?\.?)?$/i
-    );
+  /^(?:(.+?)\s+(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s+(.+?))\s*(?:₽|руб(?:лей|ля)?\.?)?$/i
+);
 
     if (!match) {
       return {
@@ -1246,8 +1252,8 @@ function parseServiceLines(input) {
       };
     }
 
-    const description = match[1].trim();
-    const amount = Number(match[2].replace(",", "."));
+    const description = (match[1] || match[4]).trim();
+    const amount = Number((match[2] || match[3]).replace(",", "."));
 
     if (!description || !Number.isFinite(amount) || amount < 0) {
       return { error: `Проверь название и сумму в строке:\n«${line}»` };
@@ -1342,6 +1348,7 @@ async function saveVisitEarnings(env, chatId, session, input) {
         `💰 Твой заработок за визит: ${money(totalEarned)}`,
       mainKeyboard()
     );
+    await showDailyQueue(env, chatId, true);
   } catch (error) {
     console.error("Could not save visit earnings:", error);
 
