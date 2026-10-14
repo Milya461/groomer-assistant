@@ -969,7 +969,7 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
   const lines = [
     `▶️ Визит начат: ${pet.name}`,
     pet.breed ? `Порода: ${pet.breed}` : null,
-    `Начало: ${date} ${appointment?.actual_start_time || now}`,
+    `Начало: ${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)} ${appointment?.actual_start_time || now}`,
     "",
     "Перед работой не забудь сделать фото ДО.",
     "После визита можно сохранить услуги и заработок.",
@@ -2198,10 +2198,26 @@ export default {
         return new Response("OK");
       }
 
+       const session = await getSession(env, chatId);
+
+      // Активный ввод имеет приоритет над распознаванием очереди.
+      if (session) {
+        await processSession(env, chatId, text, session);
+        return new Response("OK");
+      }
+
+      if (await handlePlainArrival(env, chatId, text)) {
+        return new Response("OK");
+      }
+
       // Расписание распознаётся по наличию времени в сообщении.
       if (/\b\d{1,2}:[0-5]\d\b/.test(text)) {
         await createDailyQueue(env, chatId, text);
         return new Response("OK");
+      }
+
+      await findByPlainName(env, chatId, text);
+      return new Response("OK");
       }
 
       if (await handlePlainArrival(env, chatId, text)) {
