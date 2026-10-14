@@ -547,11 +547,69 @@ async function showPet(env, chatId, id) {
   );
 }
 
-async function findPets(env, chatId, query) {
-  if (!query) {
-    await sendMessage(env, chatId, "Напиши имя для поиска. Например: /find Белла");
+async function searchPets(env, chatId, query) {
+  const normalizedQuery = String(query || "")
+    .trim()
+    .toLocaleLowerCase("ru-RU");
+
+  if (!normalizedQuery) {
+    await sendMessage(
+      env,
+      chatId,
+      "Напиши имя, породу или их сочетание. Например: /find шпиц Месси"
+    );
     return;
   }
+
+  const words = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  const result = await env.DB.prepare(`
+    SELECT * FROM dogs
+    ORDER BY name
+  `).all();
+
+  const pets = (result.results || []).filter(pet => {
+    const searchableText = `${pet.name || ""} ${pet.breed || ""}`
+      .toLocaleLowerCase("ru-RU");
+
+    return words.every(word => searchableText.includes(word));
+  });
+
+  if (!pets.length) {
+    await sendMessage(
+      env,
+      chatId,
+      `По запросу «${query}» ничего не найдено.`,
+      mainKeyboard()
+    );
+    return;
+  }
+
+  if (pets.length === 1) {
+    await showPet(env, chatId, pets[0].id);
+    return;
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    `🔎 Найдены питомцы (${pets.length}):`,
+    {
+      inline_keyboard: [
+        ...pets.slice(0, 20).map(pet => [{
+          text: `📋 ${pet.name}${pet.breed ? ` — ${pet.breed}` : ""} · №${pet.id}`,
+          callback_data: `pet:${pet.id}`
+        }]),
+        [{ text: "🏠 Главное меню", callback_data: "home" }]
+      ]
+    }
+  );
+}
+
+
+async function findPets(env, chatId, query) {
+  await searchPets(env, chatId, query);
+}
 
   const result = await env.DB.prepare(`
     SELECT * FROM dogs
@@ -581,37 +639,7 @@ async function findPets(env, chatId, query) {
 }
 
 async function findByPlainName(env, chatId, query) {
-  const result = await env.DB.prepare(`
-    SELECT * FROM dogs
-    WHERE name = ? COLLATE NOCASE
-    ORDER BY id
-    LIMIT 20
-  `).bind(query).all();
-
-  const pets = result.results || [];
-
-  if (pets.length === 1) {
-    await showPet(env, chatId, pets[0].id);
-  } else if (pets.length > 1) {
-    await sendMessage(
-      env,
-      chatId,
-      "Нашла несколько питомцев с таким именем:",
-      {
-        inline_keyboard: pets.map(pet => [{
-          text: `📋 Открыть карточку: ${pet.name} · №${pet.id}`,
-          callback_data: `pet:${pet.id}`
-        }])
-      }
-    );
-  } else {
-    await sendMessage(
-      env,
-      chatId,
-      `Не нашла питомца «${query}».\n\nДобавить питомца: /add`,
-      mainKeyboard()
-    );
-  }
+  await searchPets(env, chatId, query);
 }
 
 function cleanQueueName(value) {
