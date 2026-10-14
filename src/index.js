@@ -39,6 +39,8 @@ const HELP_TEXT = [
   "",
   "/start — открыть главное меню и приветствие.",
   "/help — открыть эту справку.",
+  “/grafik — составить или изменить график рабочих смен на следующий месяц.”,
+  “Кнопка «📅  График работы» также открывает ввод графика.”,
   "/add — начать добавление питомца в базу.",
   "/pets — показать список питомцев.",
   "/pet ID — открыть карточку питомца по его ID.",
@@ -129,12 +131,15 @@ function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "📅 Рабочий день", callback_data: "workday" },
-        { text: "🐾 Питомцы", callback_data: "pets_menu" }
+        { text: “📅  Рабочий день”, callback_data: “workday” },
+        { text: “🐾  Питомцы”, callback_data: “pets_menu” }
       ],
       [
-        { text: "💰 Мой заработок", callback_data: "earnings" },
-        { text: "❔ Помощь", callback_data: "help" }
+        { text: “💰 Мой заработок”, callback_data: “earnings” },
+        { text: “❔ Помощь”, callback_data: “help” }
+      ],
+      [
+        { text: “📅  График работы”, callback_data: “schedule_start” }
       ]
     ]
   };
@@ -1675,7 +1680,7 @@ async function processWorkSchedule(env, chatId, input) {
   const session = await getSession(env, chatId);
 
   if (!session || session.type !== "work_schedule") {
-    await sendMessage(env, chatId, "Начни ввод графика командой /schedule.");
+    await sendMessage(env, chatId, "Начни ввод графика командой /grafik или кнопкой «📅  График работы».");
     return;
   }
 
@@ -2472,10 +2477,11 @@ export default {
         await setManualDuration(env, chatId, argument);
         return new Response("OK");
       }
-      if (command === "/schedule") {
+      if (command === "/grafik") {
         await startScheduleInput(env, chatId);
         return new Response("OK");
       }
+
       if (command === "/plus") {
         await beginPlus(env, chatId);
         return new Response("OK");
