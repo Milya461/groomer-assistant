@@ -131,15 +131,15 @@ function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: “📅  Рабочий день”, callback_data: “workday” },
-        { text: “🐾  Питомцы”, callback_data: “pets_menu” }
+        { text: "📅  Рабочий день", callback_data: "workday" },
+        { text: "🐾  Питомцы", callback_data: "pets_menu" }
       ],
       [
-        { text: “💰 Мой заработок”, callback_data: “earnings” },
-        { text: “❔ Помощь”, callback_data: “help” }
+        { text: "💰 Мой заработок", callback_data: "earnings" },
+        { text: "❔ Помощь", callback_data: "help" }
       ],
       [
-        { text: “📅  График работы”, callback_data: “schedule_start” }
+        { text: "📅  График работы", callback_data: "schedule_start" }
       ]
     ]
   };
