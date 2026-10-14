@@ -718,6 +718,7 @@ async function searchPets(env, chatId, query) {
 
   const result = await env.DB.prepare(`
     SELECT * FROM dogs
+    WHERE COALESCE(is_temporary, 0) = 0
     ORDER BY name
   `).all();
 
