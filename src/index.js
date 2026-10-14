@@ -242,7 +242,18 @@ async function initializeDatabase(env) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
-
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS visit_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER NOT NULL,
+      photo_type TEXT NOT NULL CHECK (photo_type IN ('before', 'after')),
+      telegram_file_id TEXT NOT NULL,
+      caption TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (appointment_id)
+        REFERENCES appointments(id) ON DELETE CASCADE
+    )
+  `).run();
   const initialShifts = [
     "2026-10-15",
     "2026-10-16",
@@ -569,17 +580,21 @@ async function showPet(env, chatId, id) {
     return;
   }
 
-  await sendMessage(
-    env,
-    chatId,
-    formatPet(pet),
-    {
-      inline_keyboard: [[
-        { text: "▶️ Начать визит", callback_data: `visit:${pet.id}` }
-      ]]
-    }
-  );
-}
+    await sendMessage(
+      env,
+      chatId,
+      formatPet(pet),
+      {
+        inline_keyboard: [
+          [
+            { text: "▶️  Начать визит", callback_data: `visit:${pet.id}` }
+          ],
+          [
+            { text: "🖼 История фотографий", callback_data: `photos:${pet.id}` }
+          ]
+        ]
+      }
+    );
 
 async function searchPets(env, chatId, query) {
   const normalizedQuery = String(query || "")
@@ -937,7 +952,132 @@ async function getPetForAppointment(env, appointmentId) {
     WHERE a.id = ?
   `).bind(Number(appointmentId)).first();
 }
+async function startPhotoCapture(env, chatId, appointmentId, photoType) {
+  const visit = await getPetForAppointment(env, appointmentId);
 
+  if (!visit || !["in_progress", "completed"].includes(visit.status)) {
+    await sendMessage(env, chatId, "Не удалось найти подходящий визит для фотографии.");
+    return;
+  }
+
+  await saveSession(env, chatId, {
+    type: "visit_photo",
+    appointmentId: Number(appointmentId),
+    photoType,
+    petName: visit.name
+  });
+
+  const label = photoType === "before" ? "ДО" : "ПОСЛЕ";
+
+  await sendMessage(
+    env,
+    chatId,
+    `📸  Фото ${label}: ${visit.name
+}\n\nОтправь фотографию следующим сообщением. Она сохранится в истории этого визита.\n\n/cancel — отмена`
+  );
+}
+
+async function saveVisitPhoto(env, chatId, session, message) {
+  const photos = message.photo
+ || [];
+
+  if (!photos.length) {
+    await sendMessage(env, chatId, "Не вижу фотографию. Отправь именно фото, а не текстовый файл.");
+    return;
+  }
+
+  const photo = photos[photos.length - 1];
+  const caption = message.caption || null;
+
+  await env.DB.prepare(`
+    INSERT INTO visit_photos (
+      appointment_id, photo_type, telegram_file_id, caption
+    ) VALUES (?, ?, ?, ?)
+  `).bind(
+    session.appointmentId,
+    session.photoType,
+    photo.file_id,
+    caption
+  ).run();
+
+  await deleteSession(env, chatId);
+
+  const label = session.photoType === "before" ? "ДО" : "ПОСЛЕ";
+
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Фото ${label} сохранено!\n\nПитомец: ${session.petName}\nВизит №${session.appointmentId}`,
+    mainKeyboard()
+  );
+}
+
+async function showPetPhotoHistory(env, chatId, petId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name
+    FROM dogs
+    WHERE id = ?
+  `).bind(Number(petId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Питомец не найден.");
+    return;
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT
+      p.telegram_file_id,
+      p.photo_type,
+      p.caption,
+      p.created_at,
+      a.appointment_date,
+      a.id
+ AS appointment_id
+    FROM visit_photos p
+    JOIN appointments a ON a.id
+ = p.appointment_id
+    WHERE a.dog_id = ?
+    ORDER BY a.appointment_date DESC, p.id
+ DESC
+    LIMIT 10
+  `).bind(Number(petId)).all();
+
+  const photos = result.results || [];
+
+  if (!photos.length) {
+    await sendMessage(
+      env,
+      chatId,
+      `🖼 В истории «${pet.name
+}» пока нет фотографий.`,
+      mainKeyboard()
+    );
+    return;
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    `🖼 Фотоархив: ${pet.name
+}\n\nПоследние фотографии по визитам:`
+  );
+
+  for (const item of photos) {
+    const label = item.photo_type === "before" ? "ДО" : "ПОСЛЕ";
+    const date = item.appointment_date || item.created_at;
+
+    await telegram(env, "sendPhoto", {
+      chat_id: chatId,
+      photo: item.telegram_file_id,
+      caption:
+        `${pet.name
+} · ${label}\n` +
+        `Дата визита: ${date}\n` +
+        `Визит №${item.appointment_id}` +
+        (item.caption ? `\n${item.caption}` : "")
+    });
+  }
+}
 async function startVisit(env, chatId, petId, appointmentId = null) {
   const pet = await env.DB.prepare(`
     SELECT * FROM dogs WHERE id = ?
@@ -1861,7 +2001,14 @@ async function processSession(env, chatId, input, session) {
     await savePlusEarnings(env, chatId, input);
     return;
   }
-
+  if (session.type === "visit_photo") {
+    await sendMessage(
+      env,
+      chatId,
+      "Жду фотографию. Отправь фото сообщением или /cancel для отмены."
+    );
+    return;
+  }
   await deleteSession(env, chatId);
   await sendMessage(env, chatId, "Неизвестный шаг. Начни заново через меню.", mainKeyboard());
 }
@@ -2093,12 +2240,17 @@ if (data.startsWith("cancel_queue:")) {
 
   if (data.startsWith("photo_before:")) {
     const id = Number(data.slice("photo_before:".length));
-    await sendMessage(
-      env,
-      chatId,
-      "Отметка принята. Само фото пока нужно отправить отдельным сообщением в чат."
-    );
-    return;
+    return startPhotoCapture(env, chatId, id, "before");
+  }
+
+  if (data.startsWith("photo_after:")) {
+    const id = Number(data.slice("photo_after:".length));
+    return startPhotoCapture(env, chatId, id, "after");
+  }
+
+  if (data.startsWith("photos:")) {
+    const id = Number(data.slice("photos:".length));
+    return showPetPhotoHistory(env, chatId, id);
   }
 
   if (data.startsWith("duration_done:")) {
@@ -2344,7 +2496,14 @@ export default {
       await rememberChat(env, chatId);
 
       const text = typeof message.text === "string" ? message.text.trim() : "";
+      if (message.photo?.length)  {
+        const photoSession = await getSession(env, chatId);
 
+        if (photoSession?.type === "visit_photo") {
+          await saveVisitPhoto(env, chatId, photoSession, message);
+          return new Response("OK");
+        }
+      }
       if (!text) {
         return new Response("OK");
       }
