@@ -1161,6 +1161,7 @@ async function showPetPhotoHistory(env, chatId, petId) {
     SELECT id, name, species, breed, coat_features
     FROM dogs
     WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
   `).bind(Number(petId)).first();
 
   if (!pet) {
