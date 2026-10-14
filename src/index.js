@@ -538,31 +538,79 @@ async function processPetForm(env, chatId, input, session) {
   }
 
   const d = session.data;
+  let petId;
 
-  const result = await env.DB.prepare(`
-    INSERT INTO dogs (
-      name, species, breed, age, coat_features, matting_tendency,
-      sensitive_areas, clipper_reaction, dryer_reaction,
-      nail_clipper_reaction, warnings, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    d.name,
-    d.species,
-    d.breed || null,
-    d.age || null,
-    d.coat_features || null,
-    d.matting_tendency || null,
-    d.sensitive_areas || null,
-    d.clipper_reaction || null,
-    d.dryer_reaction || null,
-    d.nail_clipper_reaction || null,
-    d.warnings || null,
-    d.notes || null
-  ).run();
+  if (session.temporaryPetId) {
+    const result = await env.DB.prepare(`
+      UPDATE dogs
+      SET name = ?,
+          species = ?,
+          breed = ?,
+          age = ?,
+          coat_features = ?,
+          matting_tendency = ?,
+          sensitive_areas = ?,
+          clipper_reaction = ?,
+          dryer_reaction = ?,
+          nail_clipper_reaction = ?,
+          warnings = ?,
+          notes = ?,
+          is_temporary = 0
+      WHERE id = ? AND is_temporary = 1
+    `).bind(
+      d.name,
+      d.species,
+      d.breed || null,
+      d.age || null,
+      d.coat_features || null,
+      d.matting_tendency || null,
+      d.sensitive_areas || null,
+      d.clipper_reaction || null,
+      d.dryer_reaction || null,
+      d.nail_clipper_reaction || null,
+      d.warnings || null,
+      d.notes || null,
+      Number(session.temporaryPetId)
+    ).run();
+
+    if (!result.meta?.changes) {
+      await sendMessage(
+        env,
+        chatId,
+        "Не удалось обновить временную карточку. Визит и заработок сохранены; попробуй ещё раз."
+      );
+      return;
+    }
+
+    petId = Number(session.temporaryPetId);
+  } else {
+    const result = await env.DB.prepare(`
+      INSERT INTO dogs (
+        name, species, breed, age, coat_features, matting_tendency,
+        sensitive_areas, clipper_reaction, dryer_reaction,
+        nail_clipper_reaction, warnings, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      d.name,
+      d.species,
+      d.breed || null,
+      d.age || null,
+      d.coat_features || null,
+      d.matting_tendency || null,
+      d.sensitive_areas || null,
+      d.clipper_reaction || null,
+      d.dryer_reaction || null,
+      d.nail_clipper_reaction || null,
+      d.warnings || null,
+      d.notes || null
+    ).run();
+
+    petId = result.meta.last_row_id;
+  }
 
   await deleteSession(env, chatId);
 
-  const pet = { id: result.meta.last_row_id, ...d };
+  const pet = { id: petId, ...d, is_temporary: 0 };
 
   await sendMessage(
     env,
@@ -1256,7 +1304,10 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
       : null,
     "После визита можно сохранить услуги и заработок.",
     "",
-    "Плановое время можно указать кнопкой ниже."
+    "Плановое время можно указать кнопкой ниже.",
+    Number(pet.is_temporary || 0) === 1
+      ? "\nУ питомца нет карточки, не забудь заполнить ее после окончания визита."
+      : null
   ].filter(Boolean);
 
   if (pet.warnings) lines.push("", `⚠️ Предупреждения: ${pet.warnings}`);
