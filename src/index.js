@@ -795,7 +795,8 @@ function parseDailyQueue(input) {
     name,
     breed: extractQueueBreed(rawName)
   });
-
+  }
+  
   entries.sort((a, b) => a.time.localeCompare(b.time));
 
   for (let i = 1; i < entries.length; i++) {
