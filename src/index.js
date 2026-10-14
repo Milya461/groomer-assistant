@@ -227,6 +227,36 @@ async function initializeDatabase(env) {
         REFERENCES appointments(id) ON DELETE CASCADE
     )
   `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS assistant_work_shifts (
+      shift_date TEXT PRIMARY KEY,
+      start_time TEXT NOT NULL DEFAULT '10:00',
+      end_time TEXT NOT NULL DEFAULT '20:00',
+      reminders_sent TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
+  const initialShifts = [
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-31"
+  ];
+
+  for (const shiftDate of initialShifts) {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO assistant_work_shifts (
+        shift_date, start_time, end_time, reminders_sent
+      ) VALUES (?, '10:00', '20:00', '[]')
+    `).bind(shiftDate).run();
+  }
 }
 
 async function rememberChat(env, chatId) {
@@ -1616,8 +1646,183 @@ async function showEarningsMenu(env, chatId) {
     }
   );
 }
+async function startScheduleInput(env, chatId) {
+  const today = localDate();
+  const currentMonth = Number(today.slice(5, 7));
+  const currentYear = Number(today.slice(0, 4));
+  const nextDate = new Date(Date.UTC(currentYear, currentMonth, 1));
+  const targetMonth =
+    `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, "0")}`;
+
+  await saveSession(env, chatId, {
+    type: "work_schedule",
+    targetMonth
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    `📅 График смен на ${targetMonth.slice(5, 7)}.${targetMonth.slice(0, 4)}\n\n` +
+    "Отправь рабочие даты — по одной на строку.\n\n" +
+    "Можно указать только дату: 05.11\n" +
+    "Или дату со временем: 05.11 10:00-20:00\n\n" +
+    "Если время не указано, будет сохранено 10:00–20:00.\n" +
+    "Чтобы отменить ввод, отправь /cancel."
+  );
+}
+
+async function processWorkSchedule(env, chatId, input) {
+  const session = await getSession(env, chatId);
+
+  if (!session || session.type !== "work_schedule") {
+    await sendMessage(env, chatId, "Начни ввод графика командой /schedule.");
+    return;
+  }
+
+  const targetMonth = session.targetMonth;
+  const lines = input.split(/\n+/).map(line => line.trim()).filter(Boolean);
+
+  if (!lines.length) {
+    await sendMessage(env, chatId, "Отправь хотя бы одну рабочую дату.");
+    return;
+  }
+
+  const shifts = [];
+  const errors = [];
+  const seen = new Set();
+
+  for (const line of lines) {
+    const match = line.match(
+      /^(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{4}))?(?:\s+(\d{1,2}):([0-5]\d)(?:\s*[-–]\s*(\d{1,2}):([0-5]\d))?)?$/
+    );
+
+    if (!match) {
+      errors.push(`• ${line} — неверный формат`);
+      continue;
+    }
+
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = match[3] ? Number(match[3]) : Number(targetMonth.slice(0, 4));
+    const targetYear = Number(targetMonth.slice(0, 4));
+    const targetMonthNumber = Number(targetMonth.slice(5, 7));
+
+    if (year !== targetYear || month !== targetMonthNumber) {
+      errors.push(`• ${line} — нужна дата именно за ${targetMonth.slice(5, 7)}.${targetYear}`);
+      continue;
+    }
+
+    const date = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      errors.push(`• ${line} — такой даты не существует`);
+      continue;
+    }
+
+    const shiftDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const startTime = match[4] !== undefined
+      ? `${String(Number(match[4])).padStart(2, "0")}:${match[5]}`
+      : "10:00";
+    const endTime = match[6] !== undefined
+      ? `${String(Number(match[6])).padStart(2, "0")}:${match[7]}`
+      : "20:00";
+
+    if (
+      Number(startTime.slice(0, 2)) > 23 ||
+      Number(endTime.slice(0, 2)) > 23 ||
+      startTime >= endTime
+    ) {
+      errors.push(`• ${line} — проверь время начала и окончания`);
+      continue;
+    }
+
+    if (seen.has(shiftDate)) {
+      errors.push(`• ${line} — дата указана повторно`);
+      continue;
+    }
+
+    seen.add(shiftDate);
+    shifts.push({ shiftDate, startTime, endTime });
+  }
+
+  if (errors.length) {
+    await sendMessage(
+      env,
+      chatId,
+      "Не сохранила график: проверь строки с ошибками.\n\n" +
+      errors.join("\n") +
+      "\n\nОтправь весь список заново. Пока ничего не изменено."
+    );
+    return;
+  }
+
+  if (!shifts.length) {
+    await sendMessage(env, chatId, "Не нашла рабочих дат. Отправь список ещё раз.");
+    return;
+  }
+
+  for (const shift of shifts) {
+    await env.DB.prepare(`
+      INSERT INTO assistant_work_shifts (
+        shift_date, start_time, end_time, reminders_sent
+      ) VALUES (?, ?, ?, '[]')
+      ON CONFLICT(shift_date) DO UPDATE SET
+        start_time = excluded.start_time,
+        end_time = excluded.end_time,
+        reminders_sent = '[]',
+        updated_at = CURRENT_TIMESTAMP
+    `).bind(
+      shift.shiftDate,
+      shift.startTime,
+      shift.endTime
+    ).run();
+  }
+
+  await env.DB.prepare(`
+    DELETE FROM assistant_work_shifts
+    WHERE shift_date LIKE ?
+      AND shift_date NOT IN (${shifts.map(() => "?").join(",")})
+  `).bind(`${targetMonth}-%`, ...shifts.map(shift => shift.shiftDate)).run();
+
+  await env.DB.prepare(`
+    INSERT INTO assistant_settings (
+      setting_key, setting_value, updated_at
+    ) VALUES (?, '1', CURRENT_TIMESTAMP)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      setting_value = '1',
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(`schedule_submitted_${targetMonth}`).run();
+
+  await env.DB.prepare(`
+    DELETE FROM assistant_settings
+    WHERE setting_key = ?
+  `).bind(`schedule_prompt_${targetMonth}`).run();
+
+  await deleteSession(env, chatId);
+
+  await sendMessage(
+    env,
+    chatId,
+    `✅ График на ${targetMonth.slice(5, 7)}.${targetMonth.slice(0, 4)} сохранён!\n\n` +
+    shifts
+      .sort((a, b) => a.shiftDate.localeCompare(b.shiftDate))
+      .map(shift =>
+        `${shift.shiftDate.slice(8, 10)}.${shift.shiftDate.slice(5, 7)} — ${shift.startTime}–${shift.endTime}`
+      )
+      .join("\n") +
+    "\n\nНапоминания будут приходить только в рабочие дни."
+  );
+}
 
 async function processSession(env, chatId, input, session) {
+  if (session.type === "work_schedule") {
+    await processWorkSchedule(env, chatId, input);
+    return;
+  }
   if (session.type === "add_pet") {
     await processPetForm(env, chatId, input, session);
     return;
@@ -1796,7 +2001,9 @@ async function handleCallback(env, callback) {
   if (data === "pets_menu") {
   return showPetsMenu(env, chatId);
   }
-
+  if (data === "schedule_start") {
+    return startScheduleInput(env, chatId);
+  }
   if (data === "help") {
   return sendMessage(env, chatId, HELP_TEXT, mainKeyboard());
   }
@@ -1913,7 +2120,95 @@ async function processScheduledReminders(env) {
 
   const date = localDate();
   const now = localTime();
+  const shift = await env.DB.prepare(`
+    SELECT shift_date, start_time, end_time, reminders_sent
+    FROM assistant_work_shifts
+    WHERE shift_date = ?
+  `).bind(date).first();
 
+  if (shift && now >= shift.start_time && now < shift.end_time) {
+    const reminderTimes = [
+      shift.start_time,
+      "12:00",
+      "14:00",
+      "16:00",
+      "18:00"
+    ].filter((time, index, all) =>
+      time < shift.end_time && all.indexOf(time) === index
+    );
+
+    let sent = [];
+
+    try {
+      sent = JSON.parse(shift.reminders_sent || "[]");
+      if (!Array.isArray(sent)) sent = [];
+    } catch {
+      sent = [];
+    }
+
+    for (const reminderTime of reminderTimes) {
+      if (now < reminderTime || sent.includes(reminderTime)) continue;
+
+      sent.push(reminderTime);
+
+      await env.DB.prepare(`
+        UPDATE assistant_work_shifts
+        SET reminders_sent = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE shift_date = ?
+      `).bind(JSON.stringify(sent), date).run();
+
+      await sendMessage(
+        env,
+        chatId,
+        `🐾  Рабочий день — ${reminderTime}\n\n` +
+        "Не забудь записывать выполненные услуги и суммы, " +
+        "время работы, фотографии ДО и ПОСЛЕ, поведение питомца " +
+        "и заметки для следующего визита."
+      );
+    }
+  }
+  const dayOfMonth = Number(date.slice(8, 10));
+
+  if (dayOfMonth >= 20 && dayOfMonth <= 25) {
+    const currentYear = Number(date.slice(0, 4));
+    const currentMonth = Number(date.slice(5, 7));
+    const nextDate = new Date(Date.UTC(currentYear, currentMonth, 1));
+    const targetMonth =
+      `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, "0")}`;
+
+    const submitted = await env.DB.prepare(`
+      SELECT setting_value
+      FROM assistant_settings
+      WHERE setting_key = ?
+    `).bind(`schedule_submitted_${targetMonth}`).first();
+
+    const alreadyPrompted = await env.DB.prepare(`
+      SELECT setting_value
+      FROM assistant_settings
+      WHERE setting_key = ?
+    `).bind(`schedule_prompt_${targetMonth}`).first();
+
+    if (!submitted && !alreadyPrompted) {
+      await env.DB.prepare(`
+        INSERT INTO assistant_settings (
+          setting_key, setting_value, updated_at
+        ) VALUES (?, '1', CURRENT_TIMESTAMP)
+      `).bind(`schedule_prompt_${targetMonth}`).run();
+
+      await sendMessage(
+        env,
+        chatId,
+        `📅  Пора составить график смен на ${targetMonth.slice(5, 7)}.${targetMonth.slice(0, 4)}.\n\n` +
+        "Нажми кнопку и отправь рабочие даты.",
+        {
+          inline_keyboard: [[
+            { text: "📅  Составить график", callback_data: "schedule_start" }
+          ]]
+        }
+      );
+    }
+  }
   // Напоминание о приходе по записям текущего дня.
   const arrivals = await env.DB.prepare(`
     SELECT a.id, a.appointment_time, a.status, d.name, d.breed
@@ -2177,7 +2472,10 @@ export default {
         await setManualDuration(env, chatId, argument);
         return new Response("OK");
       }
-
+      if (command === "/schedule") {
+        await startScheduleInput(env, chatId);
+        return new Response("OK");
+      }
       if (command === "/plus") {
         await beginPlus(env, chatId);
         return new Response("OK");
