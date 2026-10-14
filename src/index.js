@@ -866,12 +866,18 @@ async function showDailyQueue(env, chatId) {
     `${row.appointment_time || "—"} — ${row.name}${row.breed ? ` (${row.breed})` : ""}\nСтатус: ${labels[row.status] || row.status}`
   );
 
-  const buttons = rows
+    const buttons = rows
     .filter(row => ["scheduled", "waiting"].includes(row.status))
-    .map(row => [{
-      text: `▶️ Пришёл: ${row.name}`,
-      callback_data: `arrived:${row.id}`
-    }]);
+    .flatMap(row => [
+      [{
+        text: `▶️ Пришёл: ${row.name}`,
+        callback_data: `arrived:${row.id}`
+      }],
+      [{
+        text: `❌ Отменить: ${row.name}`,
+        callback_data: `cancel_queue:${row.id}`
+      }]
+    ]);
 
   await sendMessage(
     env,
@@ -1734,7 +1740,43 @@ async function handlePlainArrival(env, chatId, input) {
   await handleArrival(env, chatId, appointment.id);
   return true;
 }
+async function confirmQueueCancellation(env, chatId, appointmentId) {
+  const appointment = await getPetForAppointment(env, appointmentId);
 
+  if (!appointment) {
+    await sendMessage(env, chatId, "Запись не найдена.");
+    return;
+  }
+
+  if (!["scheduled", "waiting"].includes(appointment.status)) {
+    await sendMessage(
+      env,
+      chatId,
+      "Эту запись нельзя отменить из очереди: её статус уже изменился."
+    );
+    return;
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    `Отменить запись?\n\n${appointment.appointment_time || "—"} — ${appointment.name}`,
+    {
+      inline_keyboard: [
+        [
+          {
+            text: "✅ Да, отменить",
+            callback_data: `cancel_queue_confirm:${appointment.id}`
+          },
+          {
+            text: "↩️ Нет",
+            callback_data: "queue"
+          }
+        ]
+      ]
+    }
+  );
+}
 async function handleCallback(env, callback) {
   const chatId = callback.message?.chat?.id;
   const data = callback.data || "";
@@ -1761,6 +1803,49 @@ async function handleCallback(env, callback) {
 
   if (data === "pets") return listPets(env, chatId);
   if (data === "queue") return showDailyQueue(env, chatId);
+  if (data.startsWith("cancel_queue_confirm:")) {
+  const appointmentId = data.slice("cancel_queue_confirm:".length);
+
+  const appointment = await getPetForAppointment(env, appointmentId);
+
+  if (!appointment) {
+    await sendMessage(env, chatId, "Запись не найдена.");
+    return;
+  }
+
+  if (!["scheduled", "waiting"].includes(appointment.status)) {
+    await sendMessage(
+      env,
+      chatId,
+      "Запись уже изменилась. Обнови очередь."
+    );
+    return;
+  }
+
+  await env.DB.prepare(`
+    UPDATE appointments
+    SET status = 'cancelled',
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+      AND status IN ('scheduled', 'waiting')
+  `).bind(Number(appointmentId)).run();
+
+  await sendMessage(
+    env,
+    chatId,
+    `❌ Запись ${appointment.name} отменена.`
+  );
+
+  return showDailyQueue(env, chatId);
+}
+
+if (data.startsWith("cancel_queue:")) {
+  return confirmQueueCancellation(
+    env,
+    chatId,
+    data.slice("cancel_queue:".length)
+  );
+}
   if (data === "visits") return listVisits(env, chatId);
   if (data === "plus") return beginPlus(env, chatId);
   if (data === "earnings") return showEarningsMenu(env, chatId);
