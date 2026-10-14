@@ -1058,7 +1058,7 @@ async function saveVisitPhoto(env, chatId, session, message) {
 
 async function showPetPhotoHistory(env, chatId, petId) {
   const pet = await env.DB.prepare(`
-    SELECT id, name
+    SELECT id, name, species, breed, coat_features
     FROM dogs
     WHERE id = ?
   `).bind(Number(petId)).first();
@@ -1067,7 +1067,15 @@ async function showPetPhotoHistory(env, chatId, petId) {
     await sendMessage(env, chatId, "Питомец не найден.");
     return;
   }
-
+  if (!shouldHavePhotoArchive(pet)) {
+    await sendMessage(
+      env,
+      chatId,
+      "Для этого питомца фотоархив не предусмотрен.",
+      mainKeyboard()
+    );
+    return;
+  }
   const result = await env.DB.prepare(`
     SELECT
       p.telegram_file_id,
