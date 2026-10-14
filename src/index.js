@@ -1851,6 +1851,15 @@ async function saveVisitEarnings(env, chatId, session, input) {
         ]
       }
     );
+    if (Number(visit.is_temporary || 0) === 1) {
+      await promptTemporaryPetCard(
+        env,
+        chatId,
+        session.appointmentId,
+        visit.dog_id
+      );
+    }
+
     await showDailyQueue(env, chatId, true);
   } catch (error) {
     console.error("Could not save visit earnings:", error);
