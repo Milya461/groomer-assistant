@@ -759,51 +759,6 @@ async function listPets(env, chatId) {
   );
 }
 
-async function showPet(env, chatId, id) {
-  let pet;
-
-  if (/^\d+$/.test(String(id))) {
-    pet = await env.DB.prepare(`
-      SELECT * FROM dogs
-      WHERE id = ? AND COALESCE(is_temporary, 0) = 0
-    `).bind(Number(id)).first();
-  } else {
-    pet = await env.DB.prepare(`
-      SELECT * FROM dogs
-      WHERE name = ? COLLATE NOCASE
-        AND COALESCE(is_temporary, 0) = 0
-      ORDER BY id LIMIT 1
-    `).bind(String(id)).first();
-  }
-
-  if (!pet) {
-    await sendMessage(env, chatId, `Питомец «${id}» не найден.`);
-    return;
-  }
-
-    const keyboard = [
-    [
-      { text: "▶️  Начать визит", callback_data: `visit:${pet.id}` }
-    ]
-  ];
-
-  if (shouldHavePhotoArchive(pet)) {
-    keyboard.push([
-      {
-        text: "🖼 История фотографий",
-        callback_data: `photos:${pet.id}`
-      }
-    ]);
-  }
-
-  await sendMessage(
-    env,
-    chatId,
-    formatPet(pet),
-    { inline_keyboard: keyboard }
-  );
-}
-
 const GROOMING_CARD_FIELDS = [
   {
     key: "body_length",
