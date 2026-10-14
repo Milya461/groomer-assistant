@@ -2644,6 +2644,34 @@ if (data.startsWith("cancel_queue:")) {
   if (data.startsWith("arrived:")) {
     return handleArrival(env, chatId, data.slice(8));
   }
+  if (data.startsWith("tempcreate:")) {
+    const [, appointmentId, petId] = data.split(":");
+    return handleTemporaryPetAction(
+      env,
+      chatId,
+      "create",
+      [appointmentId, petId]
+    );
+  }
+
+  if (data.startsWith("tempskip:")) {
+    return handleTemporaryPetAction(
+      env,
+      chatId,
+      "skip",
+      [data.slice("tempskip:".length)]
+    );
+  }
+
+  if (data.startsWith("tempattach:")) {
+    const [, appointmentId, existingPetId, temporaryPetId] = data.split(":");
+    return handleTemporaryPetAction(
+      env,
+      chatId,
+      "attach",
+      [appointmentId, existingPetId, temporaryPetId]
+    );
+  }
   if (data.startsWith("arrivalpet:")) {
     const [, appointmentId, petId] = data.split(":");
     return handleArrivalWithPet(env, chatId, appointmentId, petId);
