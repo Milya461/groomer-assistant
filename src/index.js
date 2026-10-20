@@ -40,6 +40,7 @@ const HELP_TEXT = [
   "/start — открыть главное меню и приветствие.",
   "/help — открыть эту справку.",
   "/grafik — составить или изменить график рабочих смен на следующий месяц.",
+  "«сегодня не работаю» — отметить выходной и отключить автоматические напоминания на сегодня.",
   "Кнопка «📅  График работы» также открывает ввод графика.",
   "/add — начать добавление питомца в базу.",
   "/pets — показать список питомцев.",
@@ -212,6 +213,18 @@ await env.DB.prepare(`
       REFERENCES dogs(id) ON DELETE CASCADE
   )
 `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS grooming_card_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dog_id INTEGER NOT NULL,
+      telegram_file_id TEXT NOT NULL,
+      caption TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (dog_id)
+        REFERENCES dogs(id) ON DELETE CASCADE
+    )
+  `).run();
+
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS earnings_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1028,26 +1041,182 @@ async function showGroomingCard(env, chatId, dogId) {
   const card = await getGroomingCard(env, pet.id
 );
   const cardText = await formatGroomingCard(card);
+  const keyboard = [[
+    {
+      text: "📝  Заполнить / изменить",
+      callback_data: `grooming_edit:${pet.id}`
+    }
+  ]];
+
+  if (shouldHavePhotoArchive(pet)) {
+    keyboard.push([
+      {
+        text: "📸  Фото к карте",
+        callback_data: `grooming_card_photos:${pet.id}`
+      },
+      {
+        text: "➕  Добавить фото",
+        callback_data: `grooming_card_photo_add:${pet.id}`
+      }
+    ]);
+  }
+
+  keyboard.push([{
+    text: "⬅️  Карточка питомца",
+    callback_data: `pet:${pet.id}`
+  }]);
 
   await sendMessage(
     env,
     chatId,
-    `🐾  ${pet.name
-}\n\n${cardText}`,
+    `🐾  ${pet.name}\n\n${cardText}`,
+    { inline_keyboard: keyboard }
+  );
+}
+
+async function startGroomingCardPhotoCapture(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name, species, breed
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  if (pet.species !== "dog" || !shouldHavePhotoArchive(pet)) {
+    await sendMessage(env, chatId, "Фото к карте стрижки доступно только для пород из действующего фотоархива.");
+    return;
+  }
+
+  await saveSession(env, chatId, {
+    type: "grooming_card_photo",
+    dogId: Number(pet.id),
+    petName: pet.name
+  });
+
+  await sendMessage(
+    env,
+    chatId,
+    `📸 Фото к карте стрижки: ${pet.name}\n\nОтправь фотографию следующим сообщением. Она сохранится в карточке питомца отдельно от фотографий визитов.\n\n/cancel — отмена`
+  );
+}
+
+async function saveGroomingCardPhoto(env, chatId, session, message) {
+  const photos = message.photo || [];
+
+  if (!photos.length) {
+    await sendMessage(env, chatId, "Не вижу фотографию. Отправь именно фото, а не текстовый файл.");
+    return;
+  }
+
+  const photo = photos[photos.length - 1];
+  const caption = message.caption || null;
+
+  await env.DB.prepare(`
+    INSERT INTO grooming_card_photos (
+      dog_id, telegram_file_id, caption
+    ) VALUES (?, ?, ?)
+  `).bind(Number(session.dogId), photo.file_id, caption).run();
+
+  await deleteSession(env, chatId);
+
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Фото добавлено в карту стрижки «${session.petName}».`,
     {
       inline_keyboard: [
-        [{
-          text: "📝  Заполнить / изменить",
-          callback_data: `grooming_edit:${pet.id
-}`
-        }],
-        [{
-          text: "⬅️  Карточка питомца",
-          callback_data: `pet:${pet.id
-}`
-        }]
+        [
+          { text: "📸  Посмотреть фото", callback_data: `grooming_card_photos:${session.dogId}` },
+          { text: "➕  Добавить ещё", callback_data: `grooming_card_photo_add:${session.dogId}` }
+        ],
+        [
+          { text: "⬅️  Карта стрижки", callback_data: `grooming_card:${session.dogId}` }
+        ]
       ]
     }
+  );
+}
+
+async function showGroomingCardPhotos(env, chatId, dogId) {
+  const pet = await env.DB.prepare(`
+    SELECT id, name, species, breed
+    FROM dogs
+    WHERE id = ?
+      AND COALESCE(is_temporary, 0) = 0
+  `).bind(Number(dogId)).first();
+
+  if (!pet) {
+    await sendMessage(env, chatId, "Карточка питомца не найдена.");
+    return;
+  }
+
+  if (pet.species !== "dog" || !shouldHavePhotoArchive(pet)) {
+    await sendMessage(env, chatId, "Фото к карте стрижки доступно только для пород из действующего фотоархива.");
+    return;
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT id, telegram_file_id, caption, created_at
+    FROM grooming_card_photos
+    WHERE dog_id = ?
+    ORDER BY id DESC
+    LIMIT 10
+  `).bind(Number(pet.id)).all();
+
+  const photos = (result.results || []).reverse();
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "➕  Добавить фото", callback_data: `grooming_card_photo_add:${pet.id}` }
+      ],
+      [
+        { text: "⬅️  Карта стрижки", callback_data: `grooming_card:${pet.id}` }
+      ]
+    ]
+  };
+
+  if (!photos.length) {
+    await sendMessage(
+      env,
+      chatId,
+      `📸 У карты стрижки «${pet.name}» пока нет фотографий.`,
+      keyboard
+    );
+    return;
+  }
+
+  const media = photos.map((photo, index) => ({
+    type: "photo",
+    media: photo.telegram_file_id,
+    caption: [
+      `📸 ${pet.name} — фото к карте (${index + 1}/${photos.length})`,
+      photo.caption ? String(photo.caption).slice(0, 850) : null
+    ].filter(Boolean).join("\n").slice(0, 1024)
+  }));
+
+  if (media.length === 1) {
+    await telegram(env, "sendPhoto", {
+      chat_id: chatId,
+      photo: media[0].media,
+      caption: media[0].caption
+    });
+  } else {
+    await telegram(env, "sendMediaGroup", {
+      chat_id: chatId,
+      media
+    });
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    `📸 Фото к карте стрижки «${pet.name}». Показаны последние ${photos.length} фотографий.`,
+    keyboard
   );
 }
 
@@ -1554,6 +1723,11 @@ async function getPetForAppointment(env, appointmentId) {
   `).bind(Number(appointmentId)).first();
 }
 async function startPhotoCapture(env, chatId, appointmentId, photoType) {
+  if (photoType !== "after") {
+    await sendMessage(env, chatId, "Фото ДО больше не используется. Можно сохранить только фото ПОСЛЕ визита.");
+    return;
+  }
+
   const visit = await getPetForAppointment(env, appointmentId);
 
   if (!visit || !["in_progress", "completed"].includes(visit.status)) {
@@ -1584,6 +1758,12 @@ async function startPhotoCapture(env, chatId, appointmentId, photoType) {
 }
 
 async function saveVisitPhoto(env, chatId, session, message) {
+  if (session.photoType !== "after") {
+    await deleteSession(env, chatId);
+    await sendMessage(env, chatId, "Фото ДО больше не используется. Старые фотографии в истории сохранены.");
+    return;
+  }
+
   const photos = message.photo
  || [];
 
@@ -1843,9 +2023,6 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
     pet.breed ? `Порода: ${pet.breed}` : null,
     `Начало: ${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)} ${appointment?.actual_start_time || now}`,
     "",
-    shouldHavePhotoArchive(pet)
-      ? "Перед работой не забудь сделать фото ДО."
-      : null,
     "После визита можно сохранить услуги и заработок.",
     "",
     "Плановое время можно указать кнопкой ниже.",
@@ -1867,12 +2044,6 @@ async function startVisit(env, chatId, petId, appointmentId = null) {
       { text: "⏱ Указать плановое время", callback_data: `duration:${id}` }
     ]
   ];
-
-  if (shouldHavePhotoArchive(pet)) {
-    keyboard.push([
-      { text: "📸  Фото ДО сделано", callback_data: `photo_before:${id}` }
-    ]);
-  }
 
   keyboard.push([
     { text: "✅ Завершить визит", callback_data: `finish:${id}` }
@@ -3037,6 +3208,14 @@ async function processSession(env, chatId, input, session) {
     );
     return;
   }
+  if (session.type === "grooming_card_photo") {
+    await sendMessage(
+      env,
+      chatId,
+      "Жду фотографию для карты стрижки. Отправь фото сообщением или /cancel для отмены."
+    );
+    return;
+  }
   await deleteSession(env, chatId);
   await sendMessage(env, chatId, "Неизвестный шаг. Начни заново через меню.", mainKeyboard());
 }
@@ -3680,6 +3859,22 @@ if (data.startsWith("cancel_queue:")) {
       data.slice("pet_edit:".length)
     );
   }
+  if (data.startsWith("grooming_card_photo_add:")) {
+    return startGroomingCardPhotoCapture(
+      env,
+      chatId,
+      data.slice("grooming_card_photo_add:".length)
+    );
+  }
+
+  if (data.startsWith("grooming_card_photos:")) {
+    return showGroomingCardPhotos(
+      env,
+      chatId,
+      data.slice("grooming_card_photos:".length)
+    );
+  }
+
   if (data.startsWith("grooming_card:")) {
     return showGroomingCard(
       env,
@@ -3754,11 +3949,6 @@ if (data.startsWith("cancel_queue:")) {
     return beginFinishVisit(env, chatId, data.slice(7));
   }
 
-  if (data.startsWith("photo_before:")) {
-    const id = Number(data.slice("photo_before:".length));
-    return startPhotoCapture(env, chatId, id, "before");
-  }
-
   if (data.startsWith("photo_after:")) {
     const id = Number(data.slice("photo_after:".length));
     return startPhotoCapture(env, chatId, id, "after");
@@ -3786,6 +3976,38 @@ if (data.startsWith("cancel_queue:")) {
   }
 }
 
+async function markTodayAsDayOff(env, chatId) {
+  const date = localDate();
+  const key = `day_off_${date}`;
+
+  await env.DB.prepare(`
+    INSERT INTO assistant_settings (
+      setting_key, setting_value, updated_at
+    ) VALUES (?, '1', CURRENT_TIMESTAMP)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      setting_value = '1',
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(key).run();
+
+  const displayDate = `${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)}`;
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Сегодня, ${displayDate}, отмечено как выходной.\n\nАвтоматические рабочие и клиентские напоминания на сегодня отключены. Очередь, записи и карточки сохранены.`,
+    mainKeyboard()
+  );
+}
+
+async function isMarkedDayOff(env, date) {
+  const result = await env.DB.prepare(`
+    SELECT setting_value
+    FROM assistant_settings
+    WHERE setting_key = ?
+  `).bind(`day_off_${date}`).first();
+
+  return result?.setting_value === "1";
+}
+
 async function processScheduledReminders(env) {
   const chatId = await getReminderChat(env);
 
@@ -3793,6 +4015,9 @@ async function processScheduledReminders(env) {
 
   const date = localDate();
   const now = localTime();
+
+  if (await isMarkedDayOff(env, date)) return;
+
   const shift = await env.DB.prepare(`
     SELECT shift_date, start_time, end_time, reminders_sent
     FROM assistant_work_shifts
@@ -3800,14 +4025,8 @@ async function processScheduledReminders(env) {
   `).bind(date).first();
 
   if (shift && now >= shift.start_time && now < shift.end_time) {
-    const reminderTimes = [
-      shift.start_time,
-      "12:00",
-      "14:00",
-      "16:00",
-      "18:00"
-    ].filter((time, index, all) =>
-      time < shift.end_time && all.indexOf(time) === index
+    const reminderTimes = [shift.start_time].filter(
+      time => time < shift.end_time
     );
 
     let sent = [];
@@ -3836,7 +4055,7 @@ async function processScheduledReminders(env) {
         chatId,
         `🐾  Рабочий день — ${reminderTime}\n\n` +
         "Не забудь записывать выполненные услуги и суммы, " +
-        "время работы, фотографии ДО и ПОСЛЕ, поведение питомца " +
+        "время работы, фотографии ПОСЛЕ, поведение питомца " +
         "и заметки для следующего визита."
       );
     }
@@ -4012,11 +4231,28 @@ export default {
       await rememberChat(env, chatId);
 
       const text = typeof message.text === "string" ? message.text.trim() : "";
+      const normalizedText = text
+        .toLocaleLowerCase("ru-RU")
+        .replace(/ё/g, "е")
+        .replace(/[.!?]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (normalizedText === "сегодня не работаю") {
+        await markTodayAsDayOff(env, chatId);
+        return new Response("OK");
+      }
+
       if (message.photo?.length)  {
         const photoSession = await getSession(env, chatId);
 
         if (photoSession?.type === "visit_photo") {
           await saveVisitPhoto(env, chatId, photoSession, message);
+          return new Response("OK");
+        }
+
+        if (photoSession?.type === "grooming_card_photo") {
+          await saveGroomingCardPhoto(env, chatId, photoSession, message);
           return new Response("OK");
         }
       }
