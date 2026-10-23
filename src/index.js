@@ -314,25 +314,7 @@ await env.DB.prepare(`
       throw error;
     }
   }
-  const initialShifts = [
-    "2026-10-15",
-    "2026-10-16",
-    "2026-10-19",
-    "2026-10-20",
-    "2026-10-23",
-    "2026-10-24",
-    "2026-10-27",
-    "2026-10-28",
-    "2026-10-31"
-  ];
 
-  for (const shiftDate of initialShifts) {
-    await env.DB.prepare(`
-      INSERT OR IGNORE INTO assistant_work_shifts (
-        shift_date, start_time, end_time, reminders_sent
-      ) VALUES (?, '10:00', '20:00', '[]')
-    `).bind(shiftDate).run();
-  }
 }
 async function getGroomingCard(env, dogId) {
   return env.DB.prepare(`
