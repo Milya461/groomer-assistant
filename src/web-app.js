@@ -5,6 +5,12 @@ export const WEB_APP_HTML = String.raw`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pretty Dogs">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-v1.png">
+<link rel="icon" type="image/png" sizes="180x180" href="/apple-touch-icon-v1.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>Pretty Dogs — Groomer Assistant</title>
 <style>
 :root{color-scheme:light;--ink:#111;--muted:#767676;--line:#e7e7e7;--soft:#f5f5f5;--white:#fff;--black:#111;--radius:16px}
