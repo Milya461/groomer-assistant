@@ -245,6 +245,29 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .photo-purpose .filelabel{margin-top:12px}
 .photo-purpose .btn.full{margin-top:12px}
 @media(max-width:480px){.sectionhead:has(#add-appointment){align-items:stretch;flex-direction:column}.sectionhead #add-appointment{width:100%}.appointment-card{grid-template-columns:46px minmax(0,1fr);gap:8px}.appointment-card>.inlineaction,.appointment-card>.status{grid-column:2;justify-self:start}.calendar-day{min-height:62px}}
+/* Clear calendar states: work day, weekend, today and selected date. */
+.calendar-day{min-height:72px;transition:background .12s,outline-color .12s}
+.calendar-day.is-working{background:#f0f0f0;border-color:#bdbdbd;border-bottom:2px solid #111}
+.calendar-day.is-working .calendar-day-number{background:#111;color:#fff;border-radius:50%;width:25px;height:25px;display:grid;place-items:center}
+.calendar-day.is-weekend:not(.is-working){background:#fafafa}
+.calendar-day.is-weekend:not(.is-working) .calendar-day-number{color:#999}
+.calendar-day.is-today{box-shadow:inset 0 0 0 2px #999}
+.calendar-day.is-selected{outline:2px solid #111;outline-offset:1px}
+.calendar-day.is-working.is-selected .calendar-day-number{background:#fff;color:#111}
+.calendar-legend-mark.selected{outline:2px solid #111;outline-offset:1px}
+@media(max-width:660px){
+  .calendar-grid{gap:4px}
+  .calendar-day{min-height:58px;padding:6px 1px;border-radius:8px;gap:3px}
+  .calendar-day-number{font-size:12px}
+  .calendar-day.is-working .calendar-day-number{width:22px;height:22px}
+  .calendar-day-dot{width:5px;height:5px}
+  .calendar-appointment-count{font-size:7px}
+  .calendar-month-title{font-size:15px}
+  .calendar-legend{gap:9px;font-size:9px}
+  .appointment-card{grid-template-columns:43px minmax(0,1fr);gap:8px}
+  .appointment-card .inlineaction,.appointment-card .status{grid-column:2;justify-self:start}
+  .appointment-form{padding:14px}
+}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -1151,9 +1174,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
             '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
             (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
-            (visitPhotos.length ? '<div class="smallmuted history-photo-label">Фото после этого визита</div><div class="history-photos">' + visitPhotos.map(function(photo) {
-              return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-            }).join("") + '</div>' : '') +
+            '<div class="smallmuted history-photo-label">Фото после визита</div>' +
+            (visitPhotos.length
+              ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
+                  return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+                }).join("") + '</div>'
+              : '<div class="smallmuted">Для этого визита фото ещё не добавлены.</div>') +
+            (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
             '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
           '</article>';
         }).join("");
@@ -1168,6 +1195,33 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           });
         });
         await Promise.all(visitJobs);
+        historySlot.querySelectorAll("[data-after-photo-upload]").forEach(function(input) {
+          input.addEventListener("change", async function() {
+            const imageFile = input.files && input.files[0];
+            if (!imageFile) return;
+            if (!String(imageFile.type || "").startsWith("image/")) {
+              showError(new Error("Выбери изображение."));
+              return;
+            }
+            if (imageFile.size > 10 * 1024 * 1024) {
+              showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
+              return;
+            }
+            input.disabled = true;
+            try {
+              const formData = new FormData();
+              formData.append("photo", imageFile, imageFile.name);
+              await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
+                method:"POST",
+                body:formData
+              });
+              await renderPet(id);
+            } catch(error) {
+              showError(error);
+              input.disabled = false;
+            }
+          });
+        });
       }
     } catch(error) {
       historySlot.innerHTML = '<div class="smallmuted">Не удалось загрузить историю визитов.</div>';
@@ -1193,9 +1247,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
           (procedures ? '<div class="history-procedures">' + esc(procedures) + '</div>' : '') +
-          ((item.photos || []).length ? '<div class="smallmuted history-photo-label">Фото после визита</div><div class="history-photos">' + item.photos.map(function(photo) {
-            return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-          }).join("") + '</div>' : '') +
+          '<div class="smallmuted history-photo-label">Фото после визита</div>' +
+          ((item.photos || []).length
+            ? '<div class="history-photos">' + item.photos.map(function(photo) {
+                return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+              }).join("") + '</div>'
+            : '<div class="smallmuted">Фотографий пока нет.</div>') +
+          (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
           '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
           (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
           '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
@@ -1209,6 +1267,33 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           photo.id,
           "visit"
         ));
+      });
+    });
+    content.querySelectorAll("[data-after-photo-upload]").forEach(function(input) {
+      input.addEventListener("change",async function() {
+        const imageFile = input.files && input.files[0];
+        if (!imageFile) return;
+        if (!String(imageFile.type || "").startsWith("image/")) {
+          showError(new Error("Выбери изображение."));
+          return;
+        }
+        if (imageFile.size > 10 * 1024 * 1024) {
+          showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
+          return;
+        }
+        input.disabled = true;
+        try {
+          const formData = new FormData();
+          formData.append("photo",imageFile,imageFile.name);
+          await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
+            method:"POST",
+            body:formData
+          });
+          await renderVisits();
+        } catch(error) {
+          showError(error);
+          input.disabled = false;
+        }
       });
     });
     content.querySelectorAll("[data-finish-history-visit]").forEach(function(button) {
