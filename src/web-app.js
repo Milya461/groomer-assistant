@@ -499,19 +499,26 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       const data = await api("/api/admin/photo-migration-status");
       const status = data.status || {};
       const remaining = Number(status.total || 0);
-      if (!remaining) {
+      const needsBucket = !data.photosBucketConfigured;
+      const needsBotToken = remaining > 0 && !data.botTokenConfigured;
+      if (!remaining && !needsBucket) {
         slot.innerHTML = "";
         return;
       }
+      const notes = [];
+      if (needsBucket) notes.push("Создай в Cloudflare R2 bucket pretty-dogs-photos и опубликуй Worker с привязкой PHOTOS.");
+      if (needsBotToken) notes.push("Для переноса старых фото нужен действующий BOT_TOKEN. Пока не удаляй бота и его токен.");
+      if (remaining > 0) notes.push("Старые фото к переносу: " + remaining + " · главное фото: " + Number(status.covers || 0) + ", примеры стрижек: " + Number(status.grooming || 0) + ", фото визитов: " + Number(status.visits || 0) + ".");
       slot.innerHTML =
         '<section class="photo-migration-card">' +
-          '<h3>Перенос архива фотографий</h3>' +
-          '<p>Перед отключением бота перенеси старые фотографии из Telegram в независимое хранилище сайта. После завершения переноса можно будет убрать токен бота.</p>' +
-          '<div class="photo-migration-status" id="photo-migration-progress">Осталось перенести: ' + remaining + ' фото · главное фото: ' + Number(status.covers || 0) + ', примеры стрижек: ' + Number(status.grooming || 0) + ', фото визитов: ' + Number(status.visits || 0) + '.</div>' +
-          '<button type="button" class="btn secondary" id="photo-migration-start">Перенести фотографии</button>' +
+          '<h3>' + (remaining > 0 ? 'Перенос архива фотографий' : 'Подключение фото-хранилища') + '</h3>' +
+          '<p>Веб-приложение хранит новые фотографии в Cloudflare R2, а не в Telegram.</p>' +
+          (notes.length ? '<div class="photo-migration-status" id="photo-migration-progress">' + notes.map(esc).join('<br>') + '</div>' : '') +
+          (remaining > 0 ? '<button type="button" class="btn secondary" id="photo-migration-start"' + (needsBucket || needsBotToken ? ' disabled' : '') + '>Перенести фотографии</button>' : '') +
         '</section>';
       const button = document.getElementById("photo-migration-start");
       const progress = document.getElementById("photo-migration-progress");
+      if (!button) return;
       button.addEventListener("click",async function() {
         button.disabled = true;
         let migratedTotal = 0;
@@ -529,7 +536,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           }
           const remainingNow = Number(latest.total || 0);
           if (!remainingNow) {
-            slot.innerHTML = '<section class="photo-migration-card"><h3>Архив фотографий перенесён</h3><p>Все старые фотографии сохранены в хранилище сайта. Теперь проверь главное фото, примеры стрижек и фото прошлых визитов — после проверки можно отключить бота и удалить его токен из Cloudflare.</p></section>';
+            slot.innerHTML = '<section class="photo-migration-card"><h3>Архив фотографий перенесён</h3><p>Все старые фотографии сохранены в R2. Проверь главное фото питомца, примеры стрижек и фото прошлых визитов. После этого можно убрать токен Telegram.</p></section>';
           } else {
             if (progress) progress.textContent = "Перенесено за этот запуск: " + migratedTotal + ". Осталось: " + remainingNow + ". Нажми кнопку ещё раз, чтобы продолжить.";
             button.disabled = false;
