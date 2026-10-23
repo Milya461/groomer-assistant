@@ -213,7 +213,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .calendar-day.is-weekend:not(.is-working) .calendar-day-number{color:#898989}
 .calendar-day.is-weekend:not(.is-working){background:#fafafa}
 .calendar-day.is-today{box-shadow:inset 0 0 0 1px #777}
-.calendar-day.is-today::after{content:"сегодня";position:absolute;bottom:4px;left:0;right:0;font-size:7px;letter-spacing:.01em;color:#555}
 .calendar-day.is-today .calendar-day-number{border:1px solid #111;border-radius:50%;width:25px;height:25px;display:grid;place-items:center}
 .calendar-day.is-working .calendar-day-number{background:#111;color:#fff;border-radius:50%;width:25px;height:25px;display:grid;place-items:center}
 .calendar-day.is-working .calendar-day-dot{background:#111}
@@ -243,6 +242,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .inlineaction.primary-action{border-color:#111;background:#111;color:#fff;padding:9px 12px;font-size:11px}
 .calendar-time-help{margin-top:10px;padding:11px 12px;border-radius:10px;background:#f7f7f7;font-size:10px;line-height:1.5;color:#555}
 .history-photo-label{margin-top:12px}
+.photo-purpose .filelabel{margin-top:12px}
+.photo-purpose .btn.full{margin-top:12px}
+@media(max-width:480px){.sectionhead:has(#add-appointment){align-items:stretch;flex-direction:column}.sectionhead #add-appointment{width:100%}.appointment-card{grid-template-columns:46px minmax(0,1fr);gap:8px}.appointment-card>.inlineaction,.appointment-card>.status{grid-column:2;justify-self:start}.calendar-day{min-height:62px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -998,21 +1000,21 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       : "";
 
     const photoSection = data.photoArchiveAllowed
-      ? '<section class="detailsection"><h3>Фото к карте стрижки</h3>' +
+      ? '<section class="detailsection"><h3>Фото-примеры для карты стрижки</h3><div class="smallmuted" style="margin:-4px 0 12px">Примеры длины, формы и результата. Эти фотографии не относятся к отдельным визитам.</div>' +
         (photos.length
           ? '<div class="photo-grid">' + photos.map(function(photo) {
-              return '<div class="photo-tile"><img alt="Фото к карте стрижки" loading="lazy" data-photo-id="' + Number(photo.id) + '" src=""></div>';
+              return '<div class="photo-tile"><img alt="Фото-пример для карты стрижки" loading="lazy" data-photo-id="' + Number(photo.id) + '" src=""></div>';
             }).join("") + '</div>'
           : '<div class="smallmuted" style="margin:10px 0 14px">Фотографий пока нет.</div>') +
-        '<label class="btn secondary filelabel">Добавить фото<input id="photo-upload" type="file" accept="image/*"></label>' +
-        '<div class="smallmuted" style="margin-top:9px">Изображение до 10 МБ. Фото хранится отдельно от истории визитов.</div>' +
+        '<label class="btn secondary filelabel">Добавить фото-пример<input id="photo-upload" type="file" accept="image/*"></label>' +
+        '<div class="smallmuted" style="margin-top:9px">Изображение до 10 МБ. Архив хранится отдельно от главного фото и истории визитов.</div>' +
         '</section>'
       : "";
 
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
       '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
-      '<label class="btn secondary filelabel full" style="margin-top:-10px;margin-bottom:22px">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label>' +
+      '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Особенности шерсти",pet.coat_features) +
       detailRow("Предупреждения",pet.warnings) +
@@ -1149,7 +1151,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
             '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
             (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
-            (visitPhotos.length ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
+            (visitPhotos.length ? '<div class="smallmuted history-photo-label">Фото после этого визита</div><div class="history-photos">' + visitPhotos.map(function(photo) {
               return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
             }).join("") + '</div>' : '') +
             '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
@@ -1191,7 +1193,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
           (procedures ? '<div class="history-procedures">' + esc(procedures) + '</div>' : '') +
-          ((item.photos || []).length ? '<div class="history-photos">' + item.photos.map(function(photo) {
+          ((item.photos || []).length ? '<div class="smallmuted history-photo-label">Фото после визита</div><div class="history-photos">' + item.photos.map(function(photo) {
             return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
           }).join("") + '</div>' : '') +
           '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
