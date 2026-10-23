@@ -4707,43 +4707,16 @@ async function handleWebApi(request, env) {
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
         SELECT id, name, species, breed, notes, warnings,
-               COALESCE(
-                 (
-                   SELECT pcp.dog_id
-                   FROM pet_cover_photos pcp
-                   WHERE pcp.dog_id = dogs.id
-                 ),
-                 (
-                   SELECT gcp.id
-                   FROM grooming_card_photos gcp
-                   WHERE gcp.dog_id = dogs.id
-                   ORDER BY gcp.id DESC
-                   LIMIT 1
-                 ),
-                 (
-                   SELECT vp.id
-                   FROM visit_photos vp
-                   JOIN appointments ap ON ap.id = vp.appointment_id
-                   WHERE ap.dog_id = dogs.id AND vp.photo_type = 'after'
-                   ORDER BY vp.created_at DESC, vp.id DESC
-                   LIMIT 1
-                 )
+               (
+                 SELECT pcp.dog_id
+                 FROM pet_cover_photos pcp
+                 WHERE pcp.dog_id = dogs.id
                ) AS cover_photo_id,
                CASE
                  WHEN EXISTS (
                    SELECT 1 FROM pet_cover_photos pcp
                    WHERE pcp.dog_id = dogs.id
                  ) THEN 'cover'
-                 WHEN EXISTS (
-                   SELECT 1 FROM grooming_card_photos gcp
-                   WHERE gcp.dog_id = dogs.id
-                 ) THEN 'grooming'
-                 WHEN EXISTS (
-                   SELECT 1
-                   FROM visit_photos vp
-                   JOIN appointments ap ON ap.id = vp.appointment_id
-                   WHERE ap.dog_id = dogs.id AND vp.photo_type = 'after'
-                 ) THEN 'visit'
                  ELSE NULL
                END AS cover_photo_type
         FROM dogs
