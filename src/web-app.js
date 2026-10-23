@@ -1264,7 +1264,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
-      '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
+      '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
       '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Особенности шерсти",pet.coat_features) +
