@@ -209,7 +209,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       <div class="subtitle" id="page-subtitle">Твой рабочий день — в одном месте.</div>
     </header>
     <main id="content"><div class="loading">Загружаю данные…</div></main>
-    <footer><span>PRETTY DOGS · GROOMER SPACE</span><span>МИНИМУМ ЛИШНЕГО</span></footer>
+    <footer><span>PRETTY DOGS · GROOMER SPACE</span></footer>
   </div>
   <nav class="mobile-nav" aria-label="Основная навигация">
     <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Обзор</span></button>
@@ -291,7 +291,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   }
   async function loadPrivatePhoto(image, photoId, photoType) {
     if (!image || !photoId) return;
-    const collection = photoType === "visit" ? "visit-photos" : "grooming-photos";
+    const collection = photoType === "visit" ? "visit-photos" : photoType === "cover" ? "pet-cover-photos" : "grooming-photos";
     try {
       const response = await fetch("/api/" + collection + "/" + Number(photoId) + "/image", {
         headers: authHeaders(), cache: "no-store", credentials: "same-origin"
@@ -578,7 +578,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
         await Promise.all(pets.filter(function(pet){return !!pet.cover_photo_id;}).map(function(pet) {
           const image = host.querySelector('[data-cover-photo-id="' + Number(pet.cover_photo_id) + '"]');
-          return loadPrivatePhoto(image, pet.cover_photo_id, pet.cover_photo_type === "visit" ? "visit" : "grooming");
+          return loadPrivatePhoto(image, pet.cover_photo_id, pet.cover_photo_type === "cover" ? "cover" : pet.cover_photo_type === "visit" ? "visit" : "grooming");
         }));
       } catch(error) {
         showError(error);
@@ -646,8 +646,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const card = data.groomingCard || {};
     const photos = data.photos || [];
     const coverInitials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
-    const profilePhoto = photos.length ? photos[0] : (data.visitCoverPhoto || null);
-    const profilePhotoType = photos.length ? "grooming" : "visit";
+    const profilePhoto = data.profilePhoto || (photos.length ? photos[0] : (data.visitCoverPhoto || null));
+    const profilePhotoType = data.profilePhoto ? "cover" : photos.length ? "grooming" : "visit";
     const profileCover = profilePhoto
       ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(profilePhoto.id) + '" src="" style="display:none">'
       : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
@@ -696,6 +696,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
       '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
+      '<label class="btn secondary filelabel full" style="margin-top:-10px;margin-bottom:22px">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Особенности шерсти",pet.coat_features) +
       detailRow("Предупреждения",pet.warnings) +
@@ -751,6 +752,35 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           }
         });
         slot.scrollIntoView({behavior:"smooth",block:"start"});
+      });
+    }
+
+    const coverPhotoInput = document.getElementById("cover-photo-upload");
+    if (coverPhotoInput) {
+      coverPhotoInput.addEventListener("change",async function() {
+        const imageFile = coverPhotoInput.files && coverPhotoInput.files[0];
+        if (!imageFile) return;
+        if (!String(imageFile.type || "").startsWith("image/")) {
+          showError(new Error("Выбери изображение."));
+          return;
+        }
+        if (imageFile.size > 10 * 1024 * 1024) {
+          showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
+          return;
+        }
+        coverPhotoInput.disabled = true;
+        try {
+          const formData = new FormData();
+          formData.append("photo",imageFile,imageFile.name);
+          await api("/api/pets/" + id + "/cover-photo",{
+            method:"POST",
+            body:formData
+          });
+          await renderPet(id);
+        } catch(error) {
+          showError(error);
+          coverPhotoInput.disabled = false;
+        }
       });
     }
 
