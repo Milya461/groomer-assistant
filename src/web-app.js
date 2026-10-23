@@ -68,6 +68,18 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .itembody{min-width:0;flex:1}
 .itemtitle{font-size:13px;font-weight:720;overflow-wrap:anywhere}
 .itemmeta{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45}
+.visit-record-trigger{display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left}
+.visit-record-trigger .itemtitle{display:block}
+.visit-record-trigger .itemmeta{display:block}
+.visit-record-hint{display:block;margin-top:8px;color:#666;font-size:10px;font-weight:650}
+.visit-detail-panel{margin-top:12px;padding:13px;border:1px solid var(--line);border-radius:10px;background:#fafafa}
+.visit-detail-panel[hidden]{display:none}
+.visit-detail-heading{font-size:11px;font-weight:800;margin-bottom:9px}
+.visit-service-line,.visit-detail-total{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #e9e9e9;font-size:11px;line-height:1.4}
+.visit-service-line strong,.visit-detail-total strong{white-space:nowrap;font-size:11px}
+.visit-detail-total{font-weight:750;border-bottom:0;padding-bottom:2px}
+.visit-detail-meta{font-size:10px;line-height:1.5;color:#666;margin-top:9px}
+.visit-detail-empty{font-size:11px;line-height:1.5;color:#666}
 .status{font-size:9px;letter-spacing:.02em;border:1px solid #dedede;padding:6px 8px;border-radius:7px;white-space:nowrap;color:#555;background:#fff}
 .btn{border:1px solid var(--black);background:var(--black);color:#fff;border-radius:10px;padding:12px 15px;font-size:12px;font-weight:720;transition:opacity .15s}
 .btn.secondary{background:#fff;color:#111;border-color:var(--line)}
@@ -467,13 +479,21 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   }
   function rowForVisit(item) {
     const petLabel = item.name + (item.breed ? " · " + item.breed : "");
+    const id = Number(item.id);
     let action = "";
     if (item.status === "scheduled" || item.status === "waiting") {
-      action = '<button class="inlineaction primary-action" data-start-visit="' + Number(item.id) + '">▶ Начать визит</button>';
+      action = '<button class="inlineaction primary-action" data-start-visit="' + id + '">▶ Начать визит</button>';
     } else if (item.status === "in_progress") {
-      action = '<button class="inlineaction primary-action" data-finish-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
+      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
     }
-    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody"><div class="itemtitle">' + esc(petLabel) + '</div><div class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</div>' + action + '</div></div>';
+    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
+      '<button type="button" class="visit-record-trigger" data-toggle-visit-detail="' + id + '" aria-expanded="false">' +
+        '<span class="itemtitle">' + esc(petLabel) + '</span>' +
+        '<span class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</span>' +
+        '<span class="visit-record-hint">Открыть запись · услуги ↓</span>' +
+      '</button>' + action +
+      '<div class="visit-detail-panel" id="visit-detail-' + id + '" hidden></div>' +
+    '</div></div>';
   }
   function formatDuration(value) {
     const n = Math.max(0,Number(value || 0));
@@ -481,6 +501,41 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (h && m) return h + " ч " + m + " мин";
     if (h) return h + " ч";
     return m + " мин";
+  }
+  function visitDetailsHtml(item) {
+    const raw = String(item.procedures || "").trim();
+    const entries = raw ? raw.split(/;\\s*|\\n+/).map(function(value){ return value.trim(); }).filter(Boolean) : [];
+    const parsed = entries.map(function(entry) {
+      const match = entry.match(/^(.+?):\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:₽|руб(?:лей|ля)?\\.?)?$/i);
+      return {
+        label: match ? match[1].trim() : entry,
+        amount: match ? Number(match[2].replace(",", ".")) : null
+      };
+    });
+    const servicesHtml = parsed.map(function(service) {
+      return '<div class="visit-service-line"><span>' + esc(service.label) + '</span>' +
+        (service.amount === null ? '<span>—</span>' : '<strong>' + money(service.amount) + '</strong>') +
+      '</div>';
+    }).join("");
+    const inferredTotal = parsed.reduce(function(sum, service){ return sum + (service.amount === null ? 0 : service.amount); },0);
+    const serviceTotal = Number(item.services_total || 0) || inferredTotal;
+    const earned = Number(item.earned || 0);
+    const duration = Number(item.actual_duration_minutes || 0);
+    const timeDetails = [];
+    if (item.appointment_date) timeDetails.push("Дата · " + dateText(item.appointment_date));
+    const startTime = item.actual_start_time || item.appointment_time;
+    if (startTime) timeDetails.push("Начало · " + startTime);
+    if (item.actual_end_time) timeDetails.push("Окончание · " + item.actual_end_time);
+    return '<div class="visit-detail-panel-inner">' +
+      '<div class="visit-detail-heading">Что сделали</div>' +
+      (servicesHtml || '<div class="visit-detail-empty">Услуги ещё не внесены. После завершения визита здесь появятся комплекс, гигиена, зубы и другие выполненные процедуры.</div>') +
+      (duration ? '<div class="visit-detail-meta">Фактическая длительность · ' + esc(formatDuration(duration)) + '</div>' : '') +
+      (timeDetails.length ? '<div class="visit-detail-meta">' + timeDetails.map(esc).join(' · ') + '</div>' : '') +
+      ((serviceTotal > 0 || earned > 0)
+        ? '<div class="visit-detail-total"><span>Стоимость услуг</span><strong>' + money(serviceTotal) + '</strong></div>' +
+          (earned > 0 ? '<div class="visit-detail-total"><span>Твой заработок</span><strong>' + money(earned) + '</strong></div>' : '')
+        : '') +
+    '</div>';
   }
   async function renderToday() {
     currentScreen = "today";
@@ -504,6 +559,21 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
       '<div id="visit-action-panel"></div><div id="appointment-editor-slot"></div>';
 
+
+    content.querySelectorAll("[data-toggle-visit-detail]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        const id = Number(button.dataset.toggleVisitDetail);
+        const item = rows.find(function(row){ return Number(row.id) === id; });
+        const panel = content.querySelector("#visit-detail-" + id);
+        if (!item || !panel) return;
+        const opening = panel.hidden;
+        if (opening) panel.innerHTML = visitDetailsHtml(item);
+        panel.hidden = !opening;
+        button.setAttribute("aria-expanded",String(opening));
+        const hint = button.querySelector(".visit-record-hint");
+        if (hint) hint.textContent = opening ? "Скрыть подробности ↑" : "Открыть запись · услуги ↓";
+      });
+    });
 
     document.getElementById("add-appointment").addEventListener("click",function() {
       openAppointmentEditor(null, moscowISODate()).catch(showError);
@@ -1246,11 +1316,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const time = item.actual_start_time || item.appointment_time || "—";
         const duration = Number(item.actual_duration_minutes || 0);
         const earned = Number(item.earned || 0);
-        const procedures = String(item.procedures || "").trim();
         return '<article class="history-card">' +
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
-          (procedures ? '<div class="history-procedures">' + esc(procedures) + '</div>' : '') +
+          '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
+          '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
           '<div class="smallmuted history-photo-label">Фото после визита</div>' +
           ((item.photos || []).length
             ? '<div class="history-photos">' + item.photos.map(function(photo) {
@@ -1263,6 +1333,19 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
         '</article>';
       }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
+    content.querySelectorAll("[data-toggle-history-detail]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        const id = Number(button.dataset.toggleHistoryDetail);
+        const item = visits.find(function(visit){ return Number(visit.id) === id; });
+        const panel = content.querySelector("#history-visit-detail-" + id);
+        if (!item || !panel) return;
+        const opening = panel.hidden;
+        if (opening) panel.innerHTML = visitDetailsHtml(item);
+        panel.hidden = !opening;
+        button.setAttribute("aria-expanded",String(opening));
+        button.textContent = opening ? "Скрыть подробности ↑" : "Открыть запись · услуги ↓";
+      });
+    });
     const photoJobs = [];
     visits.forEach(function(item) {
       (item.photos || []).forEach(function(photo) {
