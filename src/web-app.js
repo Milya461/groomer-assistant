@@ -627,6 +627,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       "фокстерьер", "фокс терьер", "fox terrier",
       "басенджи", "basenji",
       "баварская гончая", "bavarian mountain hound", "bayerischer gebirgsschweisshund",
+      "американский кокер", "american cocker",
       "спаниель", "spaniel",
       "пти брабансон", "пти брабансона", "petit brabancon", "brabancon"
     ];
