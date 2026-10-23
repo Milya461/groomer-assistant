@@ -75,6 +75,16 @@ h2{font-size:17px;letter-spacing:-.025em;margin:0;font-weight:750}
 .earningamount{text-align:right;font-size:13px;font-weight:750;white-space:nowrap}
 .earningbase{font-size:11px;color:var(--muted);margin-top:5px}
 footer{border-top:1px solid var(--line);margin-top:30px;padding-top:15px;color:#999;font-size:10px;letter-spacing:.11em;display:flex;justify-content:space-between}
+.inlineaction{display:inline-block;margin-top:8px;padding:7px 10px;border:1px solid #d8d8d8;border-radius:8px;background:#fff;color:#111;font-size:11px;font-weight:700}
+.formtextarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;font-size:13px;line-height:1.5;color:#111;background:#fff}
+.cardform{margin-top:15px}
+.cardform .field{display:block;margin:12px 0}
+.cardform .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0 15px}
+.photo-tile{aspect-ratio:1;overflow:hidden;border-radius:8px;border:1px solid var(--line);background:var(--soft);display:flex;align-items:center;justify-content:center}
+.photo-tile img{width:100%;height:100%;object-fit:cover}
+.filelabel{display:inline-flex;position:relative;overflow:hidden;align-items:center;justify-content:center}
+.filelabel input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
 button:focus-visible{outline:2px solid #111;outline-offset:2px}
 @media(min-width:620px){.shell{padding-left:26px;padding-right:26px}header{padding-top:30px}h1{font-size:34px}.hero{padding:25px}.metricgrid{gap:12px}.metric{padding:17px}}
 </style>
@@ -153,7 +163,13 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
   }
   function rowForVisit(item) {
     const petLabel = item.name + (item.breed ? " · " + item.breed : "");
-    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody"><div class="itemtitle">' + esc(petLabel) + '</div><div class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</div></div><span class="status">' + esc(statusText(item.status)) + '</span></div>';
+    let action = "";
+    if (item.status === "scheduled" || item.status === "waiting") {
+      action = '<button class="inlineaction" data-start-visit="' + Number(item.id) + '">Начать визит</button>';
+    } else if (item.status === "in_progress") {
+      action = '<button class="inlineaction" data-finish-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить</button>';
+    }
+    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody"><div class="itemtitle">' + esc(petLabel) + '</div><div class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</div>' + action + '</div><span class="status">' + esc(statusText(item.status)) + '</span></div>';
   }
   function formatDuration(value) {
     const n = Math.max(0,Number(value || 0));
@@ -180,8 +196,10 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
       '</div>' +
       '<div class="sectionhead"><h2>Очередь на сегодня</h2><span class="count">' + rows.length + '</span></div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
+      '<div id="visit-action-panel"></div>' +
       '<button class="btn full" id="day-off" ' + (dayOff ? 'disabled' : '') + '>' + (dayOff ? 'Сегодня отмечено как выходной' : 'Сегодня не работаю') + '</button>' +
       '<div class="smallmuted" style="margin-top:9px;line-height:1.45">' + (dayOff ? 'Автоматические напоминания на сегодня отключены.' : 'Отметь выходной, чтобы отключить автоматические рабочие и клиентские напоминания на сегодня. Записи не удаляются.') + '</div>';
+
     const dayOffButton = document.getElementById("day-off");
     if (dayOffButton && !dayOff) dayOffButton.addEventListener("click", async function(){
       dayOffButton.disabled = true;
@@ -190,6 +208,57 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
         await api("/api/day-off",{method:"POST",body:"{}"});
         await renderToday();
       } catch(error) { showError(error); }
+    });
+
+    content.querySelectorAll("[data-start-visit]").forEach(function(button) {
+      button.addEventListener("click", async function() {
+        button.disabled = true;
+        button.textContent = "Запускаю…";
+        try {
+          await api("/api/visits/" + button.dataset.startVisit + "/start", {
+            method: "POST",
+            body: "{}"
+          });
+          await renderToday();
+        } catch(error) {
+          showError(error);
+        }
+      });
+    });
+
+    content.querySelectorAll("[data-finish-visit]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        const panel = document.getElementById("visit-action-panel");
+        panel.innerHTML =
+          '<section class="hero actionform">' +
+            '<div class="eyebrow">Завершение визита</div>' +
+            '<h2 style="margin:8px 0 6px">' + esc(button.dataset.petName) + '</h2>' +
+            '<div class="smallmuted" style="margin-bottom:14px">Введи выполненные услуги и стоимость — по одной на строку.</div>' +
+            '<form id="finish-visit-form">' +
+              '<textarea class="formtextarea" id="finish-services" rows="4" required placeholder="Комплекс 3200&#10;Когти 300"></textarea>' +
+              '<button class="btn full" id="finish-save">Сохранить услуги и завершить</button>' +
+              '<button class="btn secondary full" type="button" id="finish-cancel">Отмена</button>' +
+            '</form>' +
+          '</section>';
+        document.getElementById("finish-cancel").addEventListener("click",function(){panel.innerHTML="";});
+        document.getElementById("finish-visit-form").addEventListener("submit",async function(event) {
+          event.preventDefault();
+          const saveButton = document.getElementById("finish-save");
+          const servicesText = document.getElementById("finish-services").value;
+          saveButton.disabled = true;
+          saveButton.textContent = "Сохраняю…";
+          try {
+            await api("/api/visits/" + button.dataset.finishVisit + "/finish", {
+              method: "POST",
+              body: JSON.stringify({servicesText:servicesText})
+            });
+            await renderToday();
+          } catch(error) {
+            showError(error);
+          }
+        });
+        panel.scrollIntoView({behavior:"smooth",block:"start"});
+      });
     });
   }
   async function renderPets() {
