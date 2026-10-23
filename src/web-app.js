@@ -123,6 +123,8 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .metricgrid.compact{margin-top:12px;margin-bottom:19px}
 .visits-date{font-size:10px;letter-spacing:.12em;color:#888;text-transform:uppercase;font-weight:750;margin:23px 0 6px}
 .history-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:9px 0;background:#fff}
+.history-photos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
+.history-photo{aspect-ratio:1;border-radius:8px}
 .history-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .history-name{font-size:13px;font-weight:760}
 .history-meta{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
@@ -146,6 +148,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .header-date{margin-left:auto}
 @media(max-width:980px){.shell{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding-left:13px;padding-right:12px}.app-main{padding-left:26px;padding-right:26px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
 @media(max-width:660px){
+  .history-photos{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
   .header-date{display:none}
   .shell{display:block;min-height:100vh}
@@ -286,10 +289,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     objectUrls.forEach(function(url) { URL.revokeObjectURL(url); });
     objectUrls = [];
   }
-  async function loadPrivatePhoto(image, photoId) {
+  async function loadPrivatePhoto(image, photoId, photoType) {
     if (!image || !photoId) return;
+    const collection = photoType === "visit" ? "visit-photos" : "grooming-photos";
     try {
-      const response = await fetch("/api/grooming-photos/" + Number(photoId) + "/image", {
+      const response = await fetch("/api/" + collection + "/" + Number(photoId) + "/image", {
         headers: authHeaders(), cache: "no-store", credentials: "same-origin"
       });
       if (!response.ok) return;
@@ -672,6 +676,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div id="pet-card-editor-slot"></div>' +
       cardSection +
       photoSection +
+      '<section class="detailsection"><h3>История визитов</h3><div id="pet-visit-history-slot"><div class="smallmuted">Загружаю историю…</div></div></section>' +
       '<button class="btn secondary full" id="back-pets-bottom">Вернуться к питомцам</button>';
 
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
@@ -750,6 +755,43 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       return loadPrivatePhoto(content.querySelector('[data-photo-id="' + Number(photo.id) + '"]'), photo.id);
     });
     if (profileImage && photos[0]) galleryImages.push(loadPrivatePhoto(profileImage, photos[0].id));
+
+    const historySlot = document.getElementById("pet-visit-history-slot");
+    try {
+      const visitData = await api("/api/visits");
+      const petVisits = (visitData.visits || []).filter(function(item) {
+        return Number(item.dog_id) === Number(id);
+      });
+      if (!petVisits.length) {
+        historySlot.innerHTML = '<div class="smallmuted">Завершённых визитов пока нет.</div>';
+      } else {
+        historySlot.innerHTML = petVisits.map(function(item) {
+          const visitPhotos = item.photos || [];
+          return '<article class="history-card">' +
+            '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
+            '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
+            (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
+            (visitPhotos.length ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
+              return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+            }).join("") + '</div>' : '') +
+            '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
+          '</article>';
+        }).join("");
+        const visitJobs = [];
+        petVisits.forEach(function(item) {
+          (item.photos || []).forEach(function(photo) {
+            visitJobs.push(loadPrivatePhoto(
+              historySlot.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
+              photo.id,
+              "visit"
+            ));
+          });
+        });
+        await Promise.all(visitJobs);
+      }
+    } catch(error) {
+      historySlot.innerHTML = '<div class="smallmuted">Не удалось загрузить историю визитов.</div>';
+    }
     await Promise.all(galleryImages);
   }
   async function renderVisits() {
@@ -771,15 +813,29 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
           (procedures ? '<div class="history-procedures">' + esc(procedures) + '</div>' : '') +
+          ((item.photos || []).length ? '<div class="history-photos">' + item.photos.map(function(photo) {
+            return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+          }).join("") + '</div>' : '') +
           '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
           '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
         '</article>';
       }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
+    const photoJobs = [];
+    visits.forEach(function(item) {
+      (item.photos || []).forEach(function(photo) {
+        photoJobs.push(loadPrivatePhoto(
+          content.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
+          photo.id,
+          "visit"
+        ));
+      });
+    });
     content.querySelectorAll("[data-open-pet]").forEach(function(button) {
       button.addEventListener("click",function() {
         renderPet(Number(button.dataset.openPet)).catch(showError);
       });
     });
+    await Promise.all(photoJobs);
   }
 
   async function renderEarnings() {
