@@ -4249,101 +4249,33 @@ const WEB_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 async function authenticateWebApp(request, env) {
   const header = request.headers.get("Authorization") || "";
-
-  if (header.startsWith("Bearer ")) {
-    const password = String(env.WEB_APP_PASSWORD || "");
-    if (password.length < 16) {
-      return { error: "Веб-вход не настроен. Добавь секрет WEB_APP_PASSWORD длиной не менее 16 символов в настройках Worker.", status: 503 };
-    }
-
-    const token = header.slice(7).trim();
-    const parts = token.split(".");
-    const expiresAt = Number(parts[0] || 0);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    if (!Number.isSafeInteger(expiresAt) || expiresAt <= nowSeconds ||
-        expiresAt > nowSeconds + WEB_SESSION_TTL_SECONDS + 60 || parts.length !== 2) {
-      return { error: "Сеанс истёк. Войди ещё раз.", status: 401 };
-    }
-
-    const expected = bytesToHex(await hmacSha256(
-      new TextEncoder().encode(password),
-      new TextEncoder().encode("pretty-dogs-session:" + expiresAt)
-    ));
-    if (!constantTimeHexEqual(expected, parts[1].toLowerCase())) {
-      return { error: "Недействительный сеанс. Войди ещё раз.", status: 401 };
-    }
-    return { user: { id: null }, standalone: true };
+  if (!header.startsWith("Bearer ")) {
+    return { error: "Войди в приложение с помощью веб-пароля.", status: 401 };
   }
 
-  if (!header.startsWith("tma ")) {
-    return { error: "Войди в приложение.", status: 401 };
+  const password = String(env.WEB_APP_PASSWORD || "");
+  if (password.length < 16) {
+    return { error: "Веб-вход не настроен. Добавь секрет WEB_APP_PASSWORD длиной не менее 16 символов в настройках Worker.", status: 503 };
   }
 
-  const initData = header.slice(4);
-  const params = new URLSearchParams(initData);
-  const providedHash = params.get("hash");
-  const authDate = Number(params.get("auth_date") || 0);
-  const userRaw = params.get("user");
-
-  if (!providedHash || !authDate || !userRaw) {
-    return { error: "Не удалось проверить вход Telegram. Закрой и открой приложение заново.", status: 401 };
-  }
-
+  const token = header.slice(7).trim();
+  const parts = token.split(".");
+  const expiresAt = Number(parts[0] || 0);
   const nowSeconds = Math.floor(Date.now() / 1000);
-  if (authDate > nowSeconds + 60 || nowSeconds - authDate > 24 * 60 * 60) {
-    return { error: "Сеанс устарел. Закрой приложение и открой его через Telegram снова.", status: 401 };
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= nowSeconds ||
+      expiresAt > nowSeconds + WEB_SESSION_TTL_SECONDS + 60 || parts.length !== 2) {
+    return { error: "Сеанс истёк. Войди ещё раз.", status: 401 };
   }
 
-  const checkString = Array.from(params.entries())
-    .filter(([key]) => key !== "hash" && key !== "signature")
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => key + "=" + value)
-    .join("\n");
-
-  const encoder = new TextEncoder();
-  const secret = await hmacSha256(
-    encoder.encode("WebAppData"),
-    encoder.encode(env.BOT_TOKEN)
-  );
-  const expected = bytesToHex(await hmacSha256(secret, encoder.encode(checkString)));
-
-  if (!constantTimeHexEqual(expected, providedHash.toLowerCase())) {
-    return { error: "Проверка Telegram не пройдена.", status: 401 };
+  const expected = bytesToHex(await hmacSha256(
+    new TextEncoder().encode(password),
+    new TextEncoder().encode("pretty-dogs-session:" + expiresAt)
+  ));
+  if (!constantTimeHexEqual(expected, parts[1].toLowerCase())) {
+    return { error: "Недействительный сеанс. Войди ещё раз.", status: 401 };
   }
 
-  let user;
-  try {
-    user = JSON.parse(userRaw);
-  } catch {
-    return { error: "Не удалось прочитать профиль Telegram.", status: 401 };
-  }
-
-  if (!user || user.id == null) {
-    return { error: "Telegram не передал профиль пользователя.", status: 401 };
-  }
-
-  const configuredIds = String(env.WEB_APP_ALLOWED_USER_IDS || "")
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean);
-
-  if (configuredIds.length) {
-    if (!configuredIds.includes(String(user.id))) {
-      return { error: "У тебя нет доступа к этому приложению.", status: 403 };
-    }
-  } else {
-    const owner = await env.DB.prepare(`
-      SELECT setting_value
-      FROM assistant_settings
-      WHERE setting_key = 'chat_id'
-    `).first();
-
-    if (!owner?.setting_value || String(user.id) !== String(owner.setting_value)) {
-      return { error: "Приложение доступно только из личного аккаунта владельца бота.", status: 403 };
-    }
-  }
-
-  return { user };
+  return { user: { id: "web-app" }, standalone: true };
 }
 
 async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId = 0, plannedDuration = 0) {
@@ -5366,7 +5298,7 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return new Response("Groomer Assistant is running.", {
+      return new Response("Pretty Dogs web app is running.", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
@@ -5388,277 +5320,9 @@ export default {
       return handleWebApi(request, env);
     }
 
-    if (request.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405 });
-    }
-
-    if (!env.BOT_TOKEN) {
-      return new Response("Bot token is not configured.", { status: 500 });
-    }
-
-    if (!env.DB) {
-      return new Response("D1 database binding DB is not configured.", { status: 500 });
-    }
-
-    let update;
-
-    try {
-      update = await request.json();
-    } catch {
-      return new Response("Invalid JSON", { status: 400 });
-    }
-
-    try {
-      await initializeDatabase(env);
-
-      if (update.callback_query) {
-        await rememberChat(env, update.callback_query.message?.chat?.id);
-        await handleCallback(env, update.callback_query);
-        return new Response("OK");
-      }
-
-      const message = update.message;
-
-      if (!message?.chat) return new Response("OK");
-
-      const chatId = message.chat.id;
-      await rememberChat(env, chatId);
-
-      const text = typeof message.text === "string" ? message.text.trim() : "";
-      const normalizedText = text
-        .toLocaleLowerCase("ru-RU")
-        .replace(/ё/g, "е")
-        .replace(/[.!?]+$/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (normalizedText === "сегодня не работаю") {
-        await markTodayAsDayOff(env, chatId);
-        return new Response("OK");
-      }
-
-      if (message.photo?.length)  {
-        const photoSession = await getSession(env, chatId);
-
-        if (photoSession?.type === "visit_photo") {
-          await saveVisitPhoto(env, chatId, photoSession, message);
-          return new Response("OK");
-        }
-
-        if (photoSession?.type === "grooming_card_photo") {
-          await saveGroomingCardPhoto(env, chatId, photoSession, message);
-          return new Response("OK");
-        }
-      }
-      if (!text) {
-        return new Response("OK");
-      }
-
-      const command = text.split(/\s+/)[0].split("@")[0];
-      const argument = text.split(/\s+/).slice(1).join(" ").trim();
-
-      if (command === "/start") {
-        const webAppUrl = new URL("/app", request.url).toString();
-        await sendMessage(env, chatId, START_TEXT, mainKeyboard(webAppUrl));
-        return new Response("OK");
-      }
-
-      if (command === "/help") {
-        const webAppUrl = new URL("/app", request.url).toString();
-        await sendMessage(env, chatId, HELP_TEXT, mainKeyboard(webAppUrl));
-        return new Response("OK");
-      }
-
-      if (command === "/cancel") {
-        await deleteSession(env, chatId);
-        await sendMessage(
-          env,
-          chatId,
-          "Текущий ввод отменён. Уже начатые визиты остаются в работе.",
-          mainKeyboard()
-        );
-        return new Response("OK");
-      }
-
-      if (command === "/add") {
-        await startAdding(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/pets") {
-        await listPets(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/pet") {
-        if (argument) {
-          await showPet(env, chatId, argument);
-        } else {
-          await sendMessage(env, chatId, "Напиши /pet 1 или /pet Янтарь.");
-        }
-        return new Response("OK");
-      }
-
-      if (command === "/find") {
-        await findPets(env, chatId, argument);
-        return new Response("OK");
-      }
-
-      if (command === "/queue") {
-        await showDailyQueue(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/queueclear") {
-        await clearDailyQueue(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/visits") {
-        await listVisits(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/visit") {
-        if (!argument) {
-          await choosePetForVisit(env, chatId);
-          return new Response("OK");
-        }
-
-        const result = await env.DB.prepare(`
-          SELECT id, name FROM dogs
-          WHERE name = ? COLLATE NOCASE
-          ORDER BY id LIMIT 2
-        `).bind(argument).all();
-
-        const pets = result.results || [];
-
-        if (pets.length === 1) {
-          await startVisit(env, chatId, pets[0].id);
-        } else if (pets.length > 1) {
-          await sendMessage(
-            env,
-            chatId,
-            "Нашла несколько питомцев с таким именем. Выбери карточку:",
-            {
-              inline_keyboard: pets.map(pet => [{
-                text: `📋 Открыть карточку: ${pet.name} · №${pet.id}`,
-                callback_data: `visit:${pet.id}`
-              }])
-            }
-          );
-        } else {
-          await sendMessage(env, chatId, `Не нашла питомца «${argument}».`);
-        }
-
-        return new Response("OK");
-      }
-
-      if (command === "/finish") {
-        if (!/^\d+$/.test(argument)) {
-          await sendMessage(env, chatId, "Укажи номер визита. Например: /finish 12\nСписок: /visits");
-        } else {
-          await beginFinishVisit(env, chatId, Number(argument));
-        }
-        return new Response("OK");
-      }
-
-      if (command === "/duration") {
-        const match = argument.match(/^(\d+)\s+(.+)$/);
-
-        if (!match) {
-          await sendMessage(env, chatId, "Формат: /duration ID 150\nВремя указывается в минутах.");
-        } else {
-          await savePlannedDuration(
-            env,
-            chatId,
-            { type: "visit_duration", appointmentId: Number(match[1]), petName: `визита №${match[1]}` },
-            match[2]
-          );
-        }
-
-        return new Response("OK");
-      }
-
-      if (command === "/time") {
-        await setManualDuration(env, chatId, argument);
-        return new Response("OK");
-      }
-      if (command === "/grafik") {
-        await startScheduleInput(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/plus") {
-        await beginPlus(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/today") {
-        await earningsToday(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/period") {
-        await earningsPeriod(env, chatId);
-        return new Response("OK");
-      }
-
-      if (command === "/month") {
-        await earningsMonth(env, chatId);
-        return new Response("OK");
-      }
-
-       const session = await getSession(env, chatId);
-
-      // Активный ввод имеет приоритет над распознаванием очереди.
-      if (session) {
-        await processSession(env, chatId, text, session);
-        return new Response("OK");
-      }
-
-      if (await handlePlainArrival(env, chatId, text)) {
-        return new Response("OK");
-      }
-
-      // Расписание распознаётся по наличию времени в сообщении.
-      if (/\b\d{1,2}:[0-5]\d\b/.test(text)) {
-        await createDailyQueue(env, chatId, text);
-        return new Response("OK");
-      }
-
-      await findByPlainName(env, chatId, text);
-      return new Response("OK");
-    } catch (error) {
-      console.error("Groomer Assistant error:", error);
-
-      try {
-        const chatId =
-          update.message?.chat?.id ||
-          update.callback_query?.message?.chat?.id;
-
-        if (chatId) {
-          await sendMessage(
-            env,
-            chatId,
-            "Возникла техническая ошибка. Попробуй ещё раз чуть позже. Если повторится, сообщи мне."
-          );
-        }
-      } catch (sendError) {
-        console.error("Could not send error message:", sendError);
-      }
-
-      return new Response("Internal error", { status: 500 });
-    }
-  },
-
-  async scheduled(controller, env, ctx) {
-    if (!env.BOT_TOKEN) return;
-    try {
-      await initializeDatabase(env);
-      ctx.waitUntil(processScheduledReminders(env));
-    } catch (error) {
-      console.error("Scheduled reminder error:", error);
-    }
+    return new Response("Not Found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
   }
 };
