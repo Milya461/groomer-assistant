@@ -520,12 +520,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
   async function renderPets() {
     currentScreen = "pets";
-    setHead("Питомцы","Карточки собак и кошек");
+    setHead("Питомцы","Карточки, особенности и история ухода");
+    clearObjectUrls();
     content.innerHTML =
-      '<div class="searchbar"><input id="pet-search" placeholder="Поиск по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
-      '<button class="btn secondary full" type="button" id="add-pet">＋ Добавить питомца</button>' +
+      '<div class="searchbar"><input id="pet-search" placeholder="Найти питомца по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
+      '<div class="sectionhead" style="margin-top:4px"><div><h2>Коллекция питомцев</h2><div class="count" id="pet-count" style="margin-top:5px">Загрузка карточек</div></div><button class="btn" type="button" id="add-pet">＋ Добавить</button></div>' +
       '<div id="pet-editor-slot"></div>' +
-      '<div id="pet-list" class="list"><div class="loading">Загружаю карточки…</div></div>';
+      '<div id="pet-list" class="pet-grid"><div class="loading">Загружаю карточки…</div></div>';
 
     const searchInput = document.getElementById("pet-search");
     const searchButton = document.getElementById("pet-search-btn");
@@ -536,20 +537,28 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     async function runSearch() {
       petQuery = searchInput.value.trim();
       const host = document.getElementById("pet-list");
-      host.innerHTML = '<div class="loading">Ищу…</div>';
+      const count = document.getElementById("pet-count");
+      host.innerHTML = '<div class="loading">Ищу питомцев…</div>';
       try {
         const data = await api("/api/pets?q=" + encodeURIComponent(petQuery));
         const pets = data.pets || [];
+        if (count) count.textContent = pets.length + (pets.length === 100 ? "+" : "") + (pets.length === 1 ? " питомец" : pets.length > 1 && pets.length < 5 ? " питомца" : " питомцев");
         host.innerHTML = pets.length ? pets.map(function(pet) {
-          const description = [
-            pet.species === "cat" ? "Кошка" : "Собака",
-            pet.breed
-          ].filter(Boolean).join(" · ");
-          return '<div class="petrow" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '">' +
-            '<div><div class="petname">' + esc(pet.name) + '</div>' +
-            '<div class="petbreed">' + esc(description) + '</div></div>' +
-            '<div class="arrow">›</div></div>';
-        }).join("") : '<div class="empty">Ничего не найдено</div>';
+          const description = [pet.species === "cat" ? "Кошка" : "Собака", pet.breed].filter(Boolean).join(" · ");
+          const initials = String(pet.name || "?").trim().split(/\\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
+          const cover = pet.cover_photo_id
+            ? '<div class="pet-cover-placeholder" data-photo-fallback>' + esc(initials) + '</div><img alt="Фото питомца" loading="lazy" style="display:none" data-cover-photo-id="' + Number(pet.cover_photo_id) + '">'
+            : '<div class="pet-cover-placeholder">' + esc(initials) + '</div>';
+          return '<article class="pet-card" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '">' +
+            '<div class="pet-cover">' + cover + '<div class="pet-cover-label">' + (pet.species === "cat" ? "CAT" : "DOG") + '</div></div>' +
+            '<div class="pet-card-body"><div class="petname">' + esc(pet.name) + '</div><div class="petbreed">' + esc(description) + '</div>' +
+            '<div class="pet-foot"><span>КАРТОЧКА № ' + Number(pet.id) + '</span><span class="arrow">↗</span></div></div></article>';
+        }).join("") : '<div class="empty" style="grid-column:1/-1">Питомцев не найдено. Попробуй изменить запрос или добавь новую карточку.</div>';
+
+        await Promise.all(pets.filter(function(pet){return !!pet.cover_photo_id;}).map(function(pet) {
+          const image = host.querySelector('[data-cover-photo-id="' + Number(pet.cover_photo_id) + '"]');
+          return loadPrivatePhoto(image, pet.cover_photo_id);
+        }));
       } catch(error) {
         showError(error);
       }
@@ -559,7 +568,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     searchInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") runSearch();
     });
-
     content.onclick = function(e) {
       const row = e.target.closest("[data-pet-id]");
       if (row) renderPet(Number(row.dataset.petId)).catch(showError);
@@ -567,10 +575,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.onkeydown = function(e) {
       const row = e.target.closest("[data-pet-id]");
       if (row && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
         renderPet(Number(row.dataset.petId)).catch(showError);
       }
     };
-
     await runSearch();
   }
   function detailRow(label,value) {
