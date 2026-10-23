@@ -1,4 +1,4 @@
-export const WEB_APP_HTML = String.raw\`<!doctype html>
+export const WEB_APP_HTML = String.raw`<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -319,4 +319,4 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
 })();
 </script>
 </body>
-</html>\`;
+</html>`;
