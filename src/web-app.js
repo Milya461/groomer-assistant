@@ -578,7 +578,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
         await Promise.all(pets.filter(function(pet){return !!pet.cover_photo_id;}).map(function(pet) {
           const image = host.querySelector('[data-cover-photo-id="' + Number(pet.cover_photo_id) + '"]');
-          return loadPrivatePhoto(image, pet.cover_photo_id);
+          return loadPrivatePhoto(image, pet.cover_photo_id, pet.cover_photo_type === "visit" ? "visit" : "grooming");
         }));
       } catch(error) {
         showError(error);
@@ -616,8 +616,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const card = data.groomingCard || {};
     const photos = data.photos || [];
     const coverInitials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
-    const profileCover = photos.length
-      ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(photos[0].id) + '" src="" style="display:none">'
+    const profilePhoto = photos.length ? photos[0] : (data.visitCoverPhoto || null);
+    const profilePhotoType = photos.length ? "grooming" : "visit";
+    const profileCover = profilePhoto
+      ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(profilePhoto.id) + '" src="" style="display:none">'
       : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
     const cardFields = [
       ["body_length","Длина корпуса"],
@@ -754,7 +756,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const galleryImages = photos.map(function(photo) {
       return loadPrivatePhoto(content.querySelector('[data-photo-id="' + Number(photo.id) + '"]'), photo.id);
     });
-    if (profileImage && photos[0]) galleryImages.push(loadPrivatePhoto(profileImage, photos[0].id));
+    if (profileImage && profilePhoto) galleryImages.push(loadPrivatePhoto(profileImage, profilePhoto.id, profilePhotoType));
 
     const historySlot = document.getElementById("pet-visit-history-slot");
     try {
