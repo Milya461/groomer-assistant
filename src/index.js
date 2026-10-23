@@ -4492,11 +4492,18 @@ async function migrateLegacyTelegramPhotos(env, limit = 8) {
     env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM grooming_card_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all(),
     env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM visit_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all()
   ]);
-  const tasks = [
-    ...(coverRows.results || []).map(row => ({ table: "cover", id: Number(row.id), fileId: row.file_id, key: "covers/" + Number(row.id) })),
-    ...(groomingRows.results || []).map(row => ({ table: "grooming", id: Number(row.id), fileId: row.file_id, key: "grooming/" + Number(row.id) })),
-    ...(visitRows.results || []).map(row => ({ table: "visit", id: Number(row.id), fileId: row.file_id, key: "visits/" + Number(row.id) }))
-  ].slice(0, Math.max(1, Math.min(12, Number(limit) || 8)));
+  const groups = [
+    (coverRows.results || []).map(row => ({ table: "cover", id: Number(row.id), fileId: row.file_id, key: "covers/" + Number(row.id) })),
+    (groomingRows.results || []).map(row => ({ table: "grooming", id: Number(row.id), fileId: row.file_id, key: "grooming/" + Number(row.id) })),
+    (visitRows.results || []).map(row => ({ table: "visit", id: Number(row.id), fileId: row.file_id, key: "visits/" + Number(row.id) }))
+  ];
+  const taskLimit = Math.max(1, Math.min(12, Number(limit) || 8));
+  const tasks = [];
+  for (let index = 0; tasks.length < taskLimit && groups.some(group => index < group.length); index += 1) {
+    for (const group of groups) {
+      if (group[index] && tasks.length < taskLimit) tasks.push(group[index]);
+    }
+  }
   let migrated = 0;
   const errors = [];
   for (const task of tasks) {
