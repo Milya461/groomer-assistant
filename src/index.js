@@ -4630,7 +4630,7 @@ async function handleWebApi(request, env) {
       const updated = await env.DB.prepare(`
         UPDATE appointments
         SET dog_id = ?, appointment_date = ?, appointment_time = ?,
-            queue_position = ?, status = 'scheduled', updated_at = CURRENT_TIMESTAMP
+            queue_position = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status IN ('scheduled', 'waiting')
       `).bind(dogId, targetDate, targetTime, queuePosition, appointmentId).run();
       if (!updated.meta?.changes) {
@@ -5057,6 +5057,80 @@ async function handleWebApi(request, env) {
 
       await saveGroomingCard(env, petId, card);
       return webApiResponse({ ok: true });
+    }
+
+    const afterVisitPhotosMatch = path.match(/^\\/api\\/appointments\\/(\\d+)\\/after-photos$/);
+    if (request.method === "POST" && afterVisitPhotosMatch) {
+      const appointmentId = Number(afterVisitPhotosMatch[1]);
+      const appointment = await env.DB.prepare(\`
+        SELECT id, status
+        FROM appointments
+        WHERE id = ?
+      \`).bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
+      if (appointment.status !== "completed") {
+        return webApiResponse({ error: "Добавить фото после визита можно после его завершения." }, 409);
+      }
+
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400);
+      }
+      const photoFile = form.get("photo");
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") {
+        return webApiResponse({ error: "Выбери фотографию." }, 400);
+      }
+      if (!String(photoFile.type || "").startsWith("image/")) {
+        return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      }
+      if (photoFile.size > 10 * 1024 * 1024) {
+        return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      }
+
+      const upload = new FormData();
+      upload.append("chat_id", String(auth.user.id));
+      upload.append("photo", photoFile, photoFile.name || "visit-after.jpg");
+      const telegramResponse = await fetch(
+        \`${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto\`,
+        { method: "POST", body: upload }
+      );
+      const telegramResult = await telegramResponse.json();
+      if (!telegramResponse.ok || !telegramResult.ok || !telegramResult.result?.photo?.length) {
+        console.error("Web app visit photo upload failed:", telegramResult);
+        return webApiResponse({ error: "Не удалось сохранить фото после визита. Попробуй выбрать изображение поменьше." }, 502);
+      }
+
+      const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
+      const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
+      const inserted = await env.DB.prepare(\`
+        INSERT INTO visit_photos (appointment_id, photo_type, telegram_file_id, caption)
+        VALUES (?, 'after', ?, ?)
+      \`).bind(appointmentId, fileId, caption).run();
+
+      try {
+        await fetch(
+          \`${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage\`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: String(auth.user.id),
+              message_id: telegramResult.result.message_id
+            })
+          }
+        );
+      } catch (error) {
+        console.error("Temporary visit photo message cleanup failed:", error);
+      }
+
+      return webApiResponse({
+        ok: true,
+        appointmentId,
+        photoId: Number(inserted.meta.last_row_id),
+        message: "Фото после визита сохранено."
+      }, 201);
     }
 
     if (request.method === "GET" && path === "/api/visits") {
