@@ -238,14 +238,12 @@ function baseServicesForPet(pet) {
 
 function addOnSizeForPet(pet) {
   const variant = getVariantForPet(pet);
-  if (variant) {
+  const group = findVariantGroup(pet?.breed);
+  if (variant && group) {
     const value = normalize(variant.id);
-    if (["средний", "малый"].includes(value) && variantGroups.find(g => g.id === "spitz")?.aliases.some(a => containsAny(pet.breed, [a]))) return "medium";
-    if (["большой", "малый"].includes(value) && variantGroups.find(g => g.id === "maltipoo")?.aliases.some(a => containsAny(pet.breed, [a]))) return "medium";
-    if (value === "малый" && variantGroups.find(g => g.id === "poodle")?.aliases.some(a => containsAny(pet.breed, [a]))) return "medium";
-    if (value === "длинношерстный" || value === "длинношерстная") {
-      // Coat type is not the dog's body size. Use breed heuristic below instead.
-    } else if (["карликовый", "той"].includes(value)) return "small";
+    if (group.id === "spitz") return ["карликовый", "малый"].includes(value) ? "small" : "medium";
+    if (group.id === "poodle") return ["той", "карликовый"].includes(value) ? "small" : "medium";
+    if (group.id === "maltipoo") return ["той", "карликовый"].includes(value) ? "small" : "medium";
   }
   const breed = normalize(pet?.breed);
   if (containsAny(breed, ["кокапу", "кавапу", "спаниель", "бишон", "вест хайленд", "малый пудель"])) return "medium";
