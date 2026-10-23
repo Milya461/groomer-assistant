@@ -4346,6 +4346,64 @@ async function authenticateWebApp(request, env) {
   return { user };
 }
 
+async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId = 0, plannedDuration = 0) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(targetDate)) {
+    return { error: "Укажи дату записи.", status: 400 };
+  }
+  const dateParts = targetDate.split("-").map(Number);
+  const checkedDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+  if (
+    checkedDate.getUTCFullYear() !== dateParts[0] ||
+    checkedDate.getUTCMonth() !== dateParts[1] - 1 ||
+    checkedDate.getUTCDate() !== dateParts[2]
+  ) {
+    return { error: "Такой даты не существует.", status: 400 };
+  }
+  if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(targetTime)) {
+    return { error: "Укажи время в формате ЧЧ:ММ.", status: 400 };
+  }
+  if (targetDate < localDate() || (targetDate === localDate() && targetTime <= localTime())) {
+    return { error: "Нельзя записать питомца на прошедшие дату или время.", status: 400 };
+  }
+
+  const shift = await env.DB.prepare(\`
+    SELECT start_time, end_time
+    FROM assistant_work_shifts
+    WHERE shift_date = ?
+  \`).bind(targetDate).first();
+  if (!shift) {
+    return { error: "На эту дату нет рабочей смены. Сначала добавь её в календаре.", status: 400 };
+  }
+  if (targetTime < shift.start_time || targetTime >= shift.end_time) {
+    return { error: "Это время вне рабочей смены " + shift.start_time + "–" + shift.end_time + ".", status: 400 };
+  }
+
+  const occupied = await env.DB.prepare(\`
+    SELECT id, appointment_time, planned_duration_minutes
+    FROM appointments
+    WHERE appointment_date = ?
+      AND status IN ('scheduled', 'waiting', 'in_progress')
+      AND id != ?
+  \`).bind(targetDate, Number(ignoreId || 0)).all();
+  const [hour, minute] = targetTime.split(":").map(Number);
+  const targetStart = hour * 60 + minute;
+  const targetEnd = targetStart + Math.max(0, Number(plannedDuration || 0));
+  for (const other of occupied.results || []) {
+    if (other.appointment_time === targetTime) {
+      return { error: "На это время уже есть запись. Выбери другое время.", status: 409 };
+    }
+    const otherDuration = Number(other.planned_duration_minutes || 0);
+    if (plannedDuration > 0 && otherDuration > 0) {
+      const [otherHour, otherMinute] = other.appointment_time.split(":").map(Number);
+      const otherStart = otherHour * 60 + otherMinute;
+      if (targetStart < otherStart + otherDuration && otherStart < targetEnd) {
+        return { error: "Это время пересекается с другим визитом. Выбери свободный интервал.", status: 409 };
+      }
+    }
+  }
+  return { shift };
+}
+
 async function handleWebApi(request, env) {
   if (!env.BOT_TOKEN || !env.DB) {
     return webApiResponse({ error: "Приложение не настроено на сервере." }, 500);
@@ -4429,6 +4487,27 @@ async function handleWebApi(request, env) {
       });
     }
 
+    if (request.method === "GET" && path === "/api/appointments") {
+      const from = String(url.searchParams.get("from") || date);
+      const to = String(url.searchParams.get("to") || from);
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(to) || from > to) {
+        return webApiResponse({ error: "Укажи корректный период календаря." }, 400);
+      }
+      const result = await env.DB.prepare(\`
+        SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
+               a.status, a.queue_position, a.procedures, a.planned_duration_minutes,
+               d.name, d.breed, d.species
+        FROM appointments a
+        JOIN dogs d ON d.id = a.dog_id
+        WHERE a.status IN ('scheduled', 'waiting', 'in_progress')
+          AND a.appointment_date >= ? AND a.appointment_date <= ?
+          AND COALESCE(d.is_temporary, 0) = 0
+        ORDER BY a.appointment_date, a.appointment_time, a.queue_position, a.id
+        LIMIT 300
+      \`).bind(from, to).all();
+      return webApiResponse({ appointments: result.results || [], from, to });
+    }
+
     if (request.method === "GET" && path === "/api/dashboard") {
       const queueResult = await env.DB.prepare(`
         SELECT a.id, a.appointment_time, a.status, a.queue_position,
@@ -4461,6 +4540,113 @@ async function handleWebApi(request, env) {
         },
         queue
       });
+    }
+
+    if (request.method === "POST" && path === "/api/appointments") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать запись." }, 400);
+      }
+      const dogId = Number(body.dogId);
+      const targetDate = String(body.date || "");
+      const targetTime = String(body.time || "");
+      if (!Number.isSafeInteger(dogId) || dogId <= 0) {
+        return webApiResponse({ error: "Выбери питомца." }, 400);
+      }
+      const pet = await env.DB.prepare(\`
+        SELECT id FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      \`).bind(dogId).first();
+      if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
+
+      const slotCheck = await validateWebAppointmentSlot(env, targetDate, targetTime);
+      if (slotCheck.error) return webApiResponse({ error: slotCheck.error }, slotCheck.status);
+
+      const position = await env.DB.prepare(\`
+        SELECT COALESCE(MAX(queue_position), 0) AS max_position
+        FROM appointments
+        WHERE appointment_date = ?
+          AND status IN ('scheduled', 'waiting', 'in_progress')
+      \`).bind(targetDate).first();
+      const queuePosition = Number(position?.max_position || 0) + 1;
+      const result = await env.DB.prepare(\`
+        INSERT INTO appointments (
+          dog_id, appointment_date, appointment_time, queue_position, status, procedures
+        ) VALUES (?, ?, ?, ?, 'scheduled', '')
+      \`).bind(dogId, targetDate, targetTime, queuePosition).run();
+      const appointmentId = Number(result.meta.last_row_id);
+      await env.DB.prepare(\`
+        INSERT OR IGNORE INTO assistant_appointment_state (appointment_id)
+        VALUES (?)
+      \`).bind(appointmentId).run();
+      return webApiResponse({ ok: true, id: appointmentId, message: "Запись добавлена." }, 201);
+    }
+
+    const editAppointmentMatch = path.match(/^\\/api\\/appointments\\/(\\d+)$/);
+    if (request.method === "PUT" && editAppointmentMatch) {
+      const appointmentId = Number(editAppointmentMatch[1]);
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать изменения записи." }, 400);
+      }
+      const dogId = Number(body.dogId);
+      const targetDate = String(body.date || "");
+      const targetTime = String(body.time || "");
+      if (!Number.isSafeInteger(dogId) || dogId <= 0) {
+        return webApiResponse({ error: "Выбери питомца." }, 400);
+      }
+      const appointment = await env.DB.prepare(\`
+        SELECT id, status, planned_duration_minutes
+        FROM appointments
+        WHERE id = ?
+      \`).bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Запись не найдена." }, 404);
+      if (!["scheduled", "waiting"].includes(appointment.status)) {
+        return webApiResponse({ error: "Можно изменить только запись, которая ещё не началась." }, 409);
+      }
+      const pet = await env.DB.prepare(\`
+        SELECT id FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      \`).bind(dogId).first();
+      if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
+
+      const slotCheck = await validateWebAppointmentSlot(
+        env, targetDate, targetTime, appointmentId, Number(appointment.planned_duration_minutes || 0)
+      );
+      if (slotCheck.error) return webApiResponse({ error: slotCheck.error }, slotCheck.status);
+
+      const position = await env.DB.prepare(\`
+        SELECT COALESCE(MAX(queue_position), 0) AS max_position
+        FROM appointments
+        WHERE appointment_date = ?
+          AND status IN ('scheduled', 'waiting', 'in_progress')
+          AND id != ?
+      \`).bind(targetDate, appointmentId).first();
+      const queuePosition = Number(position?.max_position || 0) + 1;
+      const updated = await env.DB.prepare(\`
+        UPDATE appointments
+        SET dog_id = ?, appointment_date = ?, appointment_time = ?,
+            queue_position = ?, status = 'scheduled', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('scheduled', 'waiting')
+      \`).bind(dogId, targetDate, targetTime, queuePosition, appointmentId).run();
+      if (!updated.meta?.changes) {
+        return webApiResponse({ error: "Запись уже изменилась. Обнови календарь и попробуй снова." }, 409);
+      }
+      await env.DB.prepare(\`
+        INSERT OR IGNORE INTO assistant_appointment_state (appointment_id)
+        VALUES (?)
+      \`).bind(appointmentId).run();
+      await env.DB.prepare(\`
+        UPDATE assistant_appointment_state
+        SET arrival_prompted = 0, duration_reminded = 0,
+            planned_end_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE appointment_id = ?
+      \`).bind(appointmentId).run();
+      return webApiResponse({ ok: true, id: appointmentId, message: "Запись обновлена." });
     }
 
     if (request.method === "POST" && path === "/api/work-shifts") {
