@@ -737,6 +737,36 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (profileImage && photos[0]) galleryImages.push(loadPrivatePhoto(profileImage, photos[0].id));
     await Promise.all(galleryImages);
   }
+  async function renderVisits() {
+    currentScreen = "visits";
+    setHead("Визиты","История работы с питомцами");
+    clearObjectUrls();
+    content.innerHTML = '<div class="loading">Загружаю историю визитов…</div>';
+    const data = await api("/api/visits");
+    const visits = data.visits || [];
+    content.innerHTML =
+      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">Последние записи и выполненные услуги</div></div><span class="count">' + visits.length + (visits.length === 100 ? "+" : "") + '</span></div>' +
+      (visits.length ? '<div>' + visits.map(function(item) {
+        const date = dateText(item.appointment_date);
+        const time = item.actual_start_time || item.appointment_time || "—";
+        const duration = Number(item.actual_duration_minutes || 0);
+        const earned = Number(item.earned || 0);
+        const procedures = String(item.procedures || "").trim();
+        return '<article class="history-card">' +
+          '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
+          '<div class="history-time">' + esc(time) + '</div></div>' +
+          (procedures ? '<div class="history-procedures">' + esc(procedures) + '</div>' : '') +
+          '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
+          '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
+        '</article>';
+      }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
+    content.querySelectorAll("[data-open-pet]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        renderPet(Number(button.dataset.openPet)).catch(showError);
+      });
+    });
+  }
+
   async function renderEarnings() {
     currentScreen = "earnings";
     setHead("Заработок","Учёт услуг и начислений");
@@ -764,20 +794,22 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   }
   async function navigate(screen) {
     currentScreen = screen;
+    clearObjectUrls();
     try {
       if(screen==="today") await renderToday();
       else if(screen==="pets") await renderPets();
+      else if(screen==="visits") await renderVisits();
       else if(screen==="earnings") await renderEarnings();
     } catch(error){showError(error);}
   }
   document.querySelectorAll(".tab").forEach(function(button){
     button.addEventListener("click",function(){navigate(button.dataset.screen);});
   });
-  if (!initData) {
-    setHead("Pretty Dogs","Мини-приложение");
-    content.innerHTML = '<div class="notice"><strong>Открой через Telegram</strong><p>В чате с ботом Pretty Dogs отправь <b>/start</b> и нажми кнопку «Открыть приложение».</p></div>';
+  if (!initData && !sessionToken) {
+    renderLogin();
     return;
   }
+  document.body.classList.remove("logged-out");
   navigate("today");
 })();
 </script>
