@@ -323,7 +323,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 </div>
 <script>
 (function(){
-  const initData = "";
   const content = document.getElementById("content");
   const title = document.getElementById("page-title");
   const subtitle = document.getElementById("page-subtitle");
@@ -409,7 +408,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (!response.ok) {
       const error = new Error(data.error || "Не удалось загрузить данные.");
       error.status = response.status;
-      if (!initData && response.status === 401 && path !== "/api/login") {
+      if (response.status === 401 && path !== "/api/login") {
         sessionToken = "";
         try { localStorage.removeItem("pretty-dogs-session"); } catch(e) {}
       }
@@ -459,7 +458,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
   }
   function showError(error) {
-    if (!initData && error && error.status === 401) {
+    if (error && error.status === 401) {
       renderLogin("Сеанс истёк. Введи пароль ещё раз.");
       return;
     }
