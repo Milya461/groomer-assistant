@@ -5066,11 +5066,11 @@ async function handleWebApi(request, env) {
     const afterVisitPhotosMatch = path.match(/^\/api\/appointments\/(\d+)\/after-photos$/);
     if (request.method === "POST" && afterVisitPhotosMatch) {
       const appointmentId = Number(afterVisitPhotosMatch[1]);
-      const appointment = await env.DB.prepare(\`
+      const appointment = await env.DB.prepare(`
         SELECT id, status
         FROM appointments
         WHERE id = ?
-      \`).bind(appointmentId).first();
+      `).bind(appointmentId).first();
       if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
       if (appointment.status !== "completed") {
         return webApiResponse({ error: "Добавить фото после визита можно после его завершения." }, 409);
@@ -5097,7 +5097,7 @@ async function handleWebApi(request, env) {
       upload.append("chat_id", String(auth.user.id));
       upload.append("photo", photoFile, photoFile.name || "visit-after.jpg");
       const telegramResponse = await fetch(
-        \`${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto\`,
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto`,
         { method: "POST", body: upload }
       );
       const telegramResult = await telegramResponse.json();
@@ -5108,14 +5108,14 @@ async function handleWebApi(request, env) {
 
       const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
       const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
-      const inserted = await env.DB.prepare(\`
+      const inserted = await env.DB.prepare(`
         INSERT INTO visit_photos (appointment_id, photo_type, telegram_file_id, caption)
         VALUES (?, 'after', ?, ?)
-      \`).bind(appointmentId, fileId, caption).run();
+      `).bind(appointmentId, fileId, caption).run();
 
       try {
         await fetch(
-          \`${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage\`,
+          `${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
