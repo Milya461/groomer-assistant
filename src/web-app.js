@@ -649,6 +649,16 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     (data.shifts || []).forEach(function(shift){ shifts[shift.shift_date] = shift; });
     const monthParts = calendarMonth.split("-").map(Number);
     const year = monthParts[0], monthNumber = monthParts[1];
+    const monthLastDate = new Date(Date.UTC(year, monthNumber, 0));
+    const rangeEnd = year + "-" + String(monthNumber).padStart(2,"0") + "-" + String(monthLastDate.getUTCDate()).padStart(2,"0");
+    const appointmentData = await api("/api/appointments?from=" + encodeURIComponent(calendarMonth + "-01") + "&to=" + encodeURIComponent(rangeEnd));
+    const appointmentsByDate = {};
+    (appointmentData.appointments || []).forEach(function(item) {
+      if (!appointmentsByDate[item.appointment_date]) appointmentsByDate[item.appointment_date] = [];
+      appointmentsByDate[item.appointment_date].push(item);
+    });
+    const selectedDateAppointments = appointmentsByDate[calendarSelectedDate] || [];
+    const todayDate = moscowISODate();
     const firstWeekday = (new Date(Date.UTC(year,monthNumber-1,1)).getUTCDay() + 6) % 7;
     const daysInMonth = new Date(Date.UTC(year,monthNumber,0)).getUTCDate();
     const cells = [];
@@ -667,13 +677,21 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       const dayNumber = Number(dateValue.slice(8,10));
       const shift = shifts[dateValue];
       const active = dateValue === calendarSelectedDate;
+      const dayOfWeek = new Date(Date.UTC(year, monthNumber - 1, dayNumber)).getUTCDay();
+      const weekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const isToday = dateValue === todayDate;
+      const dayAppointments = appointmentsByDate[dateValue] || [];
       return '<button type="button" class="calendar-day' +
         (shift ? ' is-working' : '') +
+        (weekend ? ' is-weekend' : '') +
+        (isToday ? ' is-today' : '') +
         (active ? ' is-selected' : '') +
         '" data-calendar-date="' + dateValue + '" aria-label="' + esc(calendarDateLabel(dateValue)) +
-        (shift ? ', рабочий день ' + shift.start_time + '–' + shift.end_time : ', выходной') + '">' +
+        (shift ? ', рабочий день' : ', выходной') +
+        (dayAppointments.length ? ', записей: ' + dayAppointments.length : '') + '">' +
         '<span class="calendar-day-number">' + dayNumber + '</span>' +
-        (shift ? '<span class="calendar-day-time">' + esc(shift.start_time) + '–' + esc(shift.end_time) + '</span><span class="calendar-day-dot"></span>' : '') +
+        (shift ? '<span class="calendar-day-dot"></span>' : '') +
+        (dayAppointments.length ? '<span class="calendar-appointment-count">' + dayAppointments.length + ' зап.</span>' : '') +
         '</button>';
     }).join("");
     content.innerHTML =
@@ -684,11 +702,27 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '</div>' +
       '<div class="calendar-grid calendar-weekdays">' + weekdays + '</div>' +
       '<div class="calendar-grid">' + dayCells + '</div>' +
+      '<div class="calendar-legend">' +
+        '<span class="calendar-legend-item"><i class="calendar-legend-mark working"></i>Рабочий день</span>' +
+        '<span class="calendar-legend-item"><i class="calendar-legend-mark today"></i>Сегодня</span>' +
+        '<span class="calendar-legend-item"><i class="calendar-legend-mark"></i>Выходной</span>' +
+      '</div>' +
       '<div class="calendar-summary"><span>Рабочих дней в месяце</span><strong>' + Object.keys(shifts).length + '</strong></div>' +
+      '<section class="calendar-day-appointments">' +
+        '<div class="sectionhead" style="margin:0 0 8px"><div><h2>Записи на дату</h2><div class="smallmuted" style="margin-top:5px">' + esc(selectedHeading) + '</div></div><button type="button" class="btn" id="calendar-add-appointment">＋ Добавить запись</button></div>' +
+        (selectedDateAppointments.length ? selectedDateAppointments.map(function(item) {
+          return '<article class="appointment-card">' +
+            '<div class="appointment-card-time">' + esc(item.appointment_time || "—") + '</div>' +
+            '<div><div class="appointment-card-name">' + esc(item.name) + '</div><div class="appointment-card-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака", statusText(item.status)].filter(Boolean).join(" · ")) + '</div></div>' +
+            ([ "scheduled", "waiting" ].includes(item.status) ? '<button type="button" class="inlineaction" data-edit-appointment="' + Number(item.id) + '">Изменить</button>' : '<span class="status">' + esc(statusText(item.status)) + '</span>') +
+          '</article>';
+        }).join("") : '<div class="empty">На эту дату пока нет записей.</div>') +
+        '<div id="appointment-editor-slot"></div>' +
+      '</section>' +
       '<section class="calendar-editor">' +
         '<div class="eyebrow">' + (selectedShift ? 'РАБОЧАЯ СМЕНА' : 'ВЫХОДНОЙ') + '</div>' +
         '<div class="calendar-editor-title">' + esc(selectedHeading) + '</div>' +
-        '<div class="smallmuted">' + (selectedShift ? 'Измени часы смены или убери этот рабочий день.' : 'Добавь рабочий день и задай время приёма.') + '</div>' +
+        '<div class="smallmuted">' + (selectedShift ? 'Измени часы смены или убери этот рабочий день.' : 'Добавь рабочий день и задай время приёма. Для создания записи сначала укажи смену.') + '</div>' +
         '<div class="calendar-time-fields">' +
           '<label class="calendar-time-field"><span>НАЧАЛО СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-start" value="' + esc(selectedShift ? selectedShift.start_time : '10:00') + '" required></label>' +
           '<label class="calendar-time-field"><span>КОНЕЦ СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-end" value="' + esc(selectedShift ? selectedShift.end_time : '20:00') + '" required></label>' +
@@ -699,6 +733,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '</div>' +
         '<div class="calendar-helper">При удалении рабочего дня записи клиентов не удаляются — меняется только график смен.</div>' +
       '</section>';
+    document.getElementById("calendar-add-appointment").addEventListener("click",function() {
+      openAppointmentEditor(null, calendarSelectedDate, selectedShift).catch(showError);
+    });
+    content.querySelectorAll("[data-edit-appointment]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        const appointment = selectedDateAppointments.find(function(item){return Number(item.id) === Number(button.dataset.editAppointment);});
+        if (appointment) openAppointmentEditor(appointment, calendarSelectedDate, selectedShift).catch(showError);
+      });
+    });
     document.getElementById("calendar-prev").addEventListener("click",function(){moveCalendarMonth(-1);});
     document.getElementById("calendar-next").addEventListener("click",function(){moveCalendarMonth(1);});
     content.querySelectorAll("[data-calendar-date]").forEach(function(button) {
