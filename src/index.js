@@ -5093,7 +5093,7 @@ async function handleWebApi(request, env) {
         SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
                a.status, a.procedures, a.actual_start_time, a.actual_end_time,
                a.actual_duration_minutes, a.planned_duration_minutes,
-               d.name, d.breed, d.species,
+               d.name, d.breed, d.species, d.breed_variant,
                COALESCE((
                  SELECT SUM(e.earned)
                  FROM earnings_entries e
@@ -5314,7 +5314,7 @@ async function handleWebApi(request, env) {
       `).bind(appointmentId).first();
 
       if (updated?.status !== "in_progress") {
-        return webApiResponse({ error: "Не удалось начать визит. Проверь сообщение бота." }, 409);
+        return webApiResponse({ error: "Не удалось начать визит. Обнови страницу и проверь запись." }, 409);
       }
 
       return webApiResponse({ ok: true, appointmentId, startTime: updated.actual_start_time });
