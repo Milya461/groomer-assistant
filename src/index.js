@@ -4426,13 +4426,36 @@ async function handleWebApi(request, env) {
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
         SELECT id, name, species, breed, notes, warnings,
-               (
-                 SELECT gcp.id
-                 FROM grooming_card_photos gcp
-                 WHERE gcp.dog_id = dogs.id
-                 ORDER BY gcp.id DESC
-                 LIMIT 1
-               ) AS cover_photo_id
+               COALESCE(
+                 (
+                   SELECT gcp.id
+                   FROM grooming_card_photos gcp
+                   WHERE gcp.dog_id = dogs.id
+                   ORDER BY gcp.id DESC
+                   LIMIT 1
+                 ),
+                 (
+                   SELECT vp.id
+                   FROM visit_photos vp
+                   JOIN appointments ap ON ap.id = vp.appointment_id
+                   WHERE ap.dog_id = dogs.id AND vp.photo_type = 'after'
+                   ORDER BY vp.created_at DESC, vp.id DESC
+                   LIMIT 1
+                 )
+               ) AS cover_photo_id,
+               CASE
+                 WHEN EXISTS (
+                   SELECT 1 FROM grooming_card_photos gcp
+                   WHERE gcp.dog_id = dogs.id
+                 ) THEN 'grooming'
+                 WHEN EXISTS (
+                   SELECT 1
+                   FROM visit_photos vp
+                   JOIN appointments ap ON ap.id = vp.appointment_id
+                   WHERE ap.dog_id = dogs.id AND vp.photo_type = 'after'
+                 ) THEN 'visit'
+                 ELSE NULL
+               END AS cover_photo_type
         FROM dogs
         WHERE COALESCE(is_temporary, 0) = 0
           AND (? = '' OR name LIKE ? COLLATE NOCASE OR COALESCE(breed, '') LIKE ? COLLATE NOCASE)
@@ -4774,12 +4797,21 @@ async function handleWebApi(request, env) {
       `).bind(petId).all();
 
       const photos = photoResult.results || [];
+      const visitCoverPhoto = await env.DB.prepare(`
+        SELECT vp.id, vp.caption, vp.created_at
+        FROM visit_photos vp
+        JOIN appointments a ON a.id = vp.appointment_id
+        WHERE a.dog_id = ? AND vp.photo_type = 'after'
+        ORDER BY vp.created_at DESC, vp.id DESC
+        LIMIT 1
+      `).bind(petId).first();
 
       return webApiResponse({
         pet,
         groomingCard,
         photoArchiveAllowed: shouldHavePhotoArchive(pet),
         photos,
+        visitCoverPhoto: visitCoverPhoto || null,
         groomingPhotoCount: photos.length
       });
     }
