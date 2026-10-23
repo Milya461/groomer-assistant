@@ -317,10 +317,56 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
   async function renderPet(id) {
     currentScreen = "pet-detail";
     setHead("Карточка","Данные питомца");
+    objectUrls.forEach(function(url){ URL.revokeObjectURL(url); });
+    objectUrls = [];
     content.innerHTML = '<div class="loading">Открываю карточку…</div>';
+
     const data = await api("/api/pets/" + id);
     const pet = data.pet || {};
     const card = data.groomingCard || {};
+    const photos = data.photos || [];
+    const cardFields = [
+      ["body_length","Длина корпуса"],
+      ["legs_length","Длина лап"],
+      ["face_length","Длина морды"],
+      ["tail_length","Длина хвоста"],
+      ["head_shape","Форма головы"],
+      ["paws_shape","Форма лап"],
+      ["attachments","Насадки"],
+      ["blades","Ножи"],
+      ["owner_preferences","Пожелания владельца"],
+      ["next_visit_changes","К следующему визиту"]
+    ];
+
+    const cardSection = pet.species === "dog"
+      ? '<section class="detailsection"><div class="sectionhead" style="margin:0 0 12px"><h3 style="margin:0">Карта стрижки</h3></div>' +
+        detailRow("Длина корпуса",card.body_length) +
+        detailRow("Длина лап",card.legs_length) +
+        detailRow("Длина морды",card.face_length) +
+        detailRow("Длина хвоста",card.tail_length) +
+        detailRow("Форма головы",card.head_shape) +
+        detailRow("Форма лап",card.paws_shape) +
+        detailRow("Насадки",card.attachments) +
+        detailRow("Ножи",card.blades) +
+        detailRow("Пожелания владельца",card.owner_preferences) +
+        detailRow("К следующему визиту",card.next_visit_changes) +
+        '<button class="btn secondary full" type="button" id="edit-card">Редактировать карту</button>' +
+        '<div id="card-form-slot"></div>' +
+        '</section>'
+      : "";
+
+    const photoSection = data.photoArchiveAllowed
+      ? '<section class="detailsection"><h3>Фото к карте стрижки</h3>' +
+        (photos.length
+          ? '<div class="photo-grid">' + photos.map(function(photo) {
+              return '<div class="photo-tile"><img alt="Фото к карте стрижки" loading="lazy" data-photo-id="' + Number(photo.id) + '" src=""></div>';
+            }).join("") + '</div>'
+          : '<div class="smallmuted" style="margin:10px 0 14px">Фотографий пока нет.</div>') +
+        '<label class="btn secondary filelabel">Добавить фото<input id="photo-upload" type="file" accept="image/*"></label>' +
+        '<div class="smallmuted" style="margin-top:9px">Изображение до 10 МБ. Фото хранится отдельно от истории визитов.</div>' +
+        '</section>'
+      : "";
+
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
       '<div class="detailtitle">' + esc(pet.name) + '</div>' +
@@ -333,22 +379,95 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
       detailRow("Реакция на фен",pet.dryer_reaction) +
       detailRow("Реакция на когтерез",pet.nail_clipper_reaction) +
       detailRow("Заметки",pet.notes) + '</section>' +
-      (pet.species === "dog" ? '<section class="detailsection"><h3>Карта стрижки</h3>' +
-        detailRow("Длина корпуса",card.body_length) +
-        detailRow("Длина лап",card.legs_length) +
-        detailRow("Длина морды",card.face_length) +
-        detailRow("Длина хвоста",card.tail_length) +
-        detailRow("Форма головы",card.head_shape) +
-        detailRow("Форма лап",card.paws_shape) +
-        detailRow("Насадки",card.attachments) +
-        detailRow("Ножи",card.blades) +
-        detailRow("Пожелания владельца",card.owner_preferences) +
-        detailRow("К следующему визиту",card.next_visit_changes) +
-        detailRow("Фото к карте",Number(data.groomingPhotoCount || 0) + " шт.") +
-        '<div class="smallmuted" style="margin-top:8px">Редактирование карты и добавление фото пока доступны в Telegram-боте.</div></section>' : '') +
+      cardSection +
+      photoSection +
       '<button class="btn secondary full" id="back-pets-bottom">Вернуться к питомцам</button>';
+
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
     document.getElementById("back-pets-bottom").addEventListener("click",function(){renderPets().catch(showError);});
+
+    const editCardButton = document.getElementById("edit-card");
+    if (editCardButton) {
+      editCardButton.addEventListener("click",function() {
+        const slot = document.getElementById("card-form-slot");
+        slot.innerHTML =
+          '<form id="card-edit-form" class="cardform">' +
+          cardFields.map(function(field) {
+            return '<label class="field"><span>' + esc(field[1]) + '</span><textarea class="formtextarea" name="' + esc(field[0]) + '" rows="2">' + esc(card[field[0]] || "") + '</textarea></label>';
+          }).join("") +
+          '<button class="btn full" type="submit" id="card-save">Сохранить карту</button>' +
+          '<button class="btn secondary full" type="button" id="card-cancel">Отмена</button>' +
+          '</form>';
+        document.getElementById("card-cancel").addEventListener("click",function(){slot.innerHTML="";});
+        document.getElementById("card-edit-form").addEventListener("submit",async function(event) {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const body = {};
+          cardFields.forEach(function(field) {
+            body[field[0]] = form.elements[field[0]].value;
+          });
+          const saveButton = document.getElementById("card-save");
+          saveButton.disabled = true;
+          saveButton.textContent = "Сохраняю…";
+          try {
+            await api("/api/pets/" + id + "/grooming-card",{
+              method:"POST",
+              body:JSON.stringify(body)
+            });
+            await renderPet(id);
+          } catch(error) {
+            showError(error);
+          }
+        });
+        slot.scrollIntoView({behavior:"smooth",block:"start"});
+      });
+    }
+
+    const photoInput = document.getElementById("photo-upload");
+    if (photoInput) {
+      photoInput.addEventListener("change",async function() {
+        const imageFile = photoInput.files && photoInput.files[0];
+        if (!imageFile) return;
+        if (!String(imageFile.type || "").startsWith("image/")) {
+          showError(new Error("Выбери изображение."));
+          return;
+        }
+        if (imageFile.size > 10 * 1024 * 1024) {
+          showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
+          return;
+        }
+        photoInput.disabled = true;
+        try {
+          const formData = new FormData();
+          formData.append("photo",imageFile,imageFile.name);
+          await api("/api/pets/" + id + "/grooming-photos",{
+            method:"POST",
+            body:formData
+          });
+          await renderPet(id);
+        } catch(error) {
+          showError(error);
+        }
+      });
+    }
+
+    await Promise.all(photos.map(async function(photo) {
+      const image = content.querySelector('[data-photo-id="' + Number(photo.id) + '"]');
+      if (!image) return;
+      try {
+        const response = await fetch("/api/grooming-photos/" + Number(photo.id) + "/image",{
+          headers:{"Authorization":"tma " + initData},
+          cache:"no-store",
+          credentials:"same-origin"
+        });
+        if (!response.ok) return;
+        const imageUrl = URL.createObjectURL(await response.blob());
+        objectUrls.push(imageUrl);
+        image.src = imageUrl;
+      } catch(error) {
+        console.error("Could not load grooming photo:",error);
+      }
+    }));
   }
   async function renderEarnings() {
     currentScreen = "earnings";
