@@ -4584,7 +4584,7 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, id: appointmentId, message: "Запись добавлена." }, 201);
     }
 
-    const editAppointmentMatch = path.match(/^\\/api\\/appointments\\/(\d+)$/);
+    const editAppointmentMatch = path.match(/^\/api\/appointments\/(\d+)$/);
     if (request.method === "PUT" && editAppointmentMatch) {
       const appointmentId = Number(editAppointmentMatch[1]);
       let body;
