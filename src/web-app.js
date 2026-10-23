@@ -964,8 +964,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const card = data.groomingCard || {};
     const photos = data.photos || [];
     const coverInitials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
-    const profilePhoto = data.profilePhoto || (photos.length ? photos[0] : (data.visitCoverPhoto || null));
-    const profilePhotoType = data.profilePhoto ? "cover" : photos.length ? "grooming" : "visit";
+    const profilePhoto = data.profilePhoto || null;
+    const profilePhotoType = "cover";
     const profileCover = profilePhoto
       ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(profilePhoto.id) + '" src="" style="display:none">'
       : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
@@ -1197,6 +1197,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
           }).join("") + '</div>' : '') +
           '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
+          (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
           '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
         '</article>';
       }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
@@ -1208,6 +1209,51 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           photo.id,
           "visit"
         ));
+      });
+    });
+    content.querySelectorAll("[data-finish-history-visit]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        const article = button.closest(".history-card");
+        const panel = article && article.querySelector(".visit-action-panel");
+        if (!panel) return;
+        const appointmentId = Number(button.dataset.finishHistoryVisit);
+        panel.innerHTML =
+          '<section class="action-form">' +
+            '<div class="eyebrow">ЗАВЕРШЕНИЕ ВИЗИТА</div>' +
+            '<h2 style="margin:8px 0 6px">' + esc(button.dataset.petName) + '</h2>' +
+            '<div class="smallmuted" style="margin-bottom:14px">Внеси выполненные услуги и сумму — по одной на строку.</div>' +
+            '<form class="history-finish-form">' +
+              '<textarea class="formtextarea history-finish-services" rows="4" required placeholder="Комплекс 3200&#10;Когти 300"></textarea>' +
+              '<button class="btn full history-finish-save" type="submit">Сохранить услуги и завершить</button>' +
+              '<button class="btn secondary full history-finish-cancel" type="button">Отмена</button>' +
+            '</form>' +
+          '</section>';
+        panel.querySelector(".history-finish-cancel").addEventListener("click",function(){panel.innerHTML="";});
+        panel.querySelector(".history-finish-form").addEventListener("submit",async function(event) {
+          event.preventDefault();
+          const saveButton = panel.querySelector(".history-finish-save");
+          const servicesText = panel.querySelector(".history-finish-services").value;
+          saveButton.disabled = true;
+          saveButton.textContent = "Сохраняю…";
+          try {
+            await api("/api/visits/" + appointmentId + "/finish", {
+              method:"POST",
+              body:JSON.stringify({servicesText:servicesText})
+            });
+            await renderVisits();
+          } catch(error) {
+            saveButton.disabled = false;
+            saveButton.textContent = "Сохранить услуги и завершить";
+            let errorBox = panel.querySelector(".appointment-form-error");
+            if (!errorBox) {
+              errorBox = document.createElement("div");
+              errorBox.className = "appointment-form-error";
+              panel.querySelector(".history-finish-form").appendChild(errorBox);
+            }
+            errorBox.textContent = error.message || "Не удалось завершить визит.";
+            errorBox.style.display = "block";
+          }
+        });
       });
     });
     content.querySelectorAll("[data-open-pet]").forEach(function(button) {
