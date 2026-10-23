@@ -1,3 +1,5 @@
+import { WEB_APP_HTML } from "./web-app.js";
+
 const TELEGRAM_API = "https://api.telegram.org";
 const TIME_ZONE = "Europe/Moscow";
 const DAY_MINUTES = 24 * 60;
@@ -128,22 +130,30 @@ const STEPS = [
   { key: "notes", prompt: "Дополнительные заметки. Или /skip.", optional: true }
 ];
 
-function mainKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: "📅  Рабочий день", callback_data: "workday" },
-        { text: "🐾  Питомцы", callback_data: "pets_menu" }
-      ],
-      [
-        { text: "💰 Мой заработок", callback_data: "earnings" },
-        { text: "❔ Помощь", callback_data: "help" }
-      ],
-      [
-        { text: "📅  График работы", callback_data: "schedule_start" }
-      ]
+function mainKeyboard(webAppUrl = null) {
+  const rows = [];
+
+  if (webAppUrl) {
+    rows.push([
+      { text: "🌐 Открыть приложение", web_app: { url: webAppUrl } }
+    ]);
+  }
+
+  rows.push(
+    [
+      { text: "📅  Рабочий день", callback_data: "workday" },
+      { text: "🐾  Питомцы", callback_data: "pets_menu" }
+    ],
+    [
+      { text: "💰 Мой заработок", callback_data: "earnings" },
+      { text: "❔ Помощь", callback_data: "help" }
+    ],
+    [
+      { text: "📅  График работы", callback_data: "schedule_start" }
     ]
-  };
+  );
+
+  return { inline_keyboard: rows };
 }
 
 async function telegram(env, method, payload) {
@@ -4183,6 +4193,276 @@ async function processScheduledReminders(env) {
   }
 }
 
+
+function webApiResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
+async function hmacSha256(keyBytes, valueBytes) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, valueBytes));
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function constantTimeHexEqual(left, right) {
+  if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let i = 0; i < left.length; i += 1) {
+    difference |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  }
+  return difference === 0;
+}
+
+async function authenticateWebApp(request, env) {
+  const header = request.headers.get("Authorization") || "";
+  if (!header.startsWith("tma ")) {
+    return { error: "Открой приложение через Telegram.", status: 401 };
+  }
+
+  const initData = header.slice(4);
+  const params = new URLSearchParams(initData);
+  const providedHash = params.get("hash");
+  const authDate = Number(params.get("auth_date") || 0);
+  const userRaw = params.get("user");
+
+  if (!providedHash || !authDate || !userRaw) {
+    return { error: "Не удалось проверить вход Telegram. Закрой и открой приложение заново.", status: 401 };
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (authDate > nowSeconds + 60 || nowSeconds - authDate > 24 * 60 * 60) {
+    return { error: "Сеанс устарел. Закрой приложение и открой его через Telegram снова.", status: 401 };
+  }
+
+  const checkString = Array.from(params.entries())
+    .filter(([key]) => key !== "hash" && key !== "signature")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => key + "=" + value)
+    .join("\n");
+
+  const encoder = new TextEncoder();
+  const secret = await hmacSha256(
+    encoder.encode("WebAppData"),
+    encoder.encode(env.BOT_TOKEN)
+  );
+  const expected = bytesToHex(await hmacSha256(secret, encoder.encode(checkString)));
+
+  if (!constantTimeHexEqual(expected, providedHash.toLowerCase())) {
+    return { error: "Проверка Telegram не пройдена.", status: 401 };
+  }
+
+  let user;
+  try {
+    user = JSON.parse(userRaw);
+  } catch {
+    return { error: "Не удалось прочитать профиль Telegram.", status: 401 };
+  }
+
+  if (!user || user.id == null) {
+    return { error: "Telegram не передал профиль пользователя.", status: 401 };
+  }
+
+  const configuredIds = String(env.WEB_APP_ALLOWED_USER_IDS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  if (configuredIds.length) {
+    if (!configuredIds.includes(String(user.id))) {
+      return { error: "У тебя нет доступа к этому приложению.", status: 403 };
+    }
+  } else {
+    const owner = await env.DB.prepare(`
+      SELECT setting_value
+      FROM assistant_settings
+      WHERE setting_key = 'chat_id'
+    `).first();
+
+    if (!owner?.setting_value || String(user.id) !== String(owner.setting_value)) {
+      return { error: "Приложение доступно только из личного аккаунта владельца бота.", status: 403 };
+    }
+  }
+
+  return { user };
+}
+
+async function handleWebApi(request, env) {
+  if (!env.BOT_TOKEN || !env.DB) {
+    return webApiResponse({ error: "Приложение не настроено на сервере." }, 500);
+  }
+
+  try {
+    const auth = await authenticateWebApp(request, env);
+    if (auth.error) return webApiResponse({ error: auth.error }, auth.status);
+
+    await initializeDatabase(env);
+
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const date = localDate();
+    const month = date.slice(0, 7);
+    const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
+
+    if (request.method === "GET" && path === "/api/dashboard") {
+      const queueResult = await env.DB.prepare(`
+        SELECT a.id, a.appointment_time, a.status, a.queue_position,
+               a.actual_start_time, a.actual_end_time, a.actual_duration_minutes,
+               d.id AS dog_id, d.name, d.breed
+        FROM appointments a
+        JOIN dogs d ON d.id = a.dog_id
+        WHERE a.appointment_date = ?
+        ORDER BY a.queue_position, a.appointment_time, a.id
+        LIMIT 100
+      `).bind(date).all();
+
+      const queue = queueResult.results || [];
+      const earningRow = await env.DB.prepare(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(earned), 0) AS earned
+        FROM earnings_entries
+        WHERE service_date = ?
+      `).bind(date).first();
+
+      return webApiResponse({
+        date,
+        dateDisplay: todayDisplay,
+        dayOff: await isMarkedDayOff(env, date),
+        earnedToday: Number(earningRow?.earned || 0),
+        earningsCount: Number(earningRow?.count || 0),
+        counts: {
+          total: queue.length,
+          inProgress: queue.filter(item => item.status === "in_progress").length,
+          completed: queue.filter(item => item.status === "completed").length
+        },
+        queue
+      });
+    }
+
+    if (request.method === "GET" && path === "/api/pets") {
+      const query = String(url.searchParams.get("q") || "").trim().slice(0, 100);
+      const pattern = "%" + query + "%";
+      const result = await env.DB.prepare(`
+        SELECT id, name, species, breed, notes, warnings
+        FROM dogs
+        WHERE COALESCE(is_temporary, 0) = 0
+          AND (? = '' OR name LIKE ? COLLATE NOCASE OR COALESCE(breed, '') LIKE ? COLLATE NOCASE)
+        ORDER BY name COLLATE NOCASE, id
+        LIMIT 100
+      `).bind(query, pattern, pattern).all();
+
+      return webApiResponse({ pets: result.results || [] });
+    }
+
+    const petMatch = path.match(/^\/api\/pets\/(\d+)$/);
+    if (request.method === "GET" && petMatch) {
+      const petId = Number(petMatch[1]);
+      const pet = await env.DB.prepare(`
+        SELECT id, name, species, breed, coat_features, warnings,
+               sensitive_areas, clipper_reaction, dryer_reaction,
+               nail_clipper_reaction, notes
+        FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(petId).first();
+
+      if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
+
+      let groomingCard = null;
+      if (pet.species === "dog") groomingCard = await getGroomingCard(env, petId);
+
+      const photoCountRow = await env.DB.prepare(`
+        SELECT COUNT(*) AS count
+        FROM grooming_card_photos
+        WHERE dog_id = ?
+      `).bind(petId).first();
+
+      return webApiResponse({
+        pet,
+        groomingCard,
+        groomingPhotoCount: Number(photoCountRow?.count || 0)
+      });
+    }
+
+    if (request.method === "GET" && path === "/api/earnings") {
+      const range = url.searchParams.get("range") || "today";
+      let start = date;
+      let end = date;
+      let periodLabel = "Сегодня";
+
+      const year = Number(date.slice(0, 4));
+      const monthNumber = Number(date.slice(5, 7));
+      const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+
+      if (range === "month") {
+        start = month + "-01";
+        end = month + "-" + String(monthEnd).padStart(2, "0");
+        periodLabel = "01." + date.slice(5, 7) + "–" + String(monthEnd).padStart(2, "0") + "." + date.slice(5, 7);
+      } else if (range === "first-half") {
+        start = month + "-01";
+        end = month + "-15";
+        periodLabel = "01–15." + date.slice(5, 7);
+      } else if (range === "second-half") {
+        start = month + "-16";
+        end = month + "-" + String(monthEnd).padStart(2, "0");
+        periodLabel = "16–" + String(monthEnd).padStart(2, "0") + "." + date.slice(5, 7);
+      } else if (range !== "today") {
+        return webApiResponse({ error: "Неизвестный период." }, 400);
+      }
+
+      const summary = await env.DB.prepare(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(earned), 0) AS totalEarned
+        FROM earnings_entries
+        WHERE service_date >= ? AND service_date <= ?
+      `).bind(start, end).first();
+
+      const entriesResult = await env.DB.prepare(`
+        SELECT id, service_date, description, amount, rate, earned, appointment_id, source
+        FROM earnings_entries
+        WHERE service_date >= ? AND service_date <= ?
+        ORDER BY service_date DESC, id DESC
+        LIMIT 100
+      `).bind(start, end).all();
+
+      return webApiResponse({
+        range,
+        start,
+        end,
+        periodLabel,
+        count: Number(summary?.count || 0),
+        totalEarned: Number(summary?.totalEarned || 0),
+        entries: entriesResult.results || []
+      });
+    }
+
+    if (request.method === "POST" && path === "/api/day-off") {
+      await markTodayAsDayOff(env, String(auth.user.id));
+      return webApiResponse({ ok: true, dayOff: true, date, dateDisplay: todayDisplay });
+    }
+
+    return webApiResponse({ error: "Метод или раздел не найден." }, 404);
+  } catch (error) {
+    console.error("Web app API error:", error);
+    return webApiResponse({ error: "Не удалось выполнить запрос. Попробуй ещё раз." }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -4192,6 +4472,22 @@ export default {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
+    }
+
+    if (request.method === "GET" && url.pathname === "/app") {
+      return new Response(WEB_APP_HTML, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer"
+        }
+      });
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      return handleWebApi(request, env);
     }
 
     if (request.method !== "POST") {
@@ -4264,12 +4560,14 @@ export default {
       const argument = text.split(/\s+/).slice(1).join(" ").trim();
 
       if (command === "/start") {
-        await sendMessage(env, chatId, START_TEXT, mainKeyboard());
+        const webAppUrl = new URL("/app", request.url).toString();
+        await sendMessage(env, chatId, START_TEXT, mainKeyboard(webAppUrl));
         return new Response("OK");
       }
 
       if (command === "/help") {
-        await sendMessage(env, chatId, HELP_TEXT, mainKeyboard());
+        const webAppUrl = new URL("/app", request.url).toString();
+        await sendMessage(env, chatId, HELP_TEXT, mainKeyboard(webAppUrl));
         return new Response("OK");
       }
 
