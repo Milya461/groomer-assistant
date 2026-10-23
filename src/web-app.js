@@ -138,7 +138,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .auth-field input{width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:14px;background:#fff;color:#111}
 .auth-error{display:none;padding:11px 13px;margin:10px 0 4px;border:1px solid #d5d5d5;border-radius:9px;color:#333;font-size:12px;line-height:1.5}
 .logged-out .shell{grid-template-columns:minmax(0,1fr)}
-.logged-out .sidebar,.logged-out .mobile-nav,.logged-out .app-main footer{display:none}
+.logged-out .sidebar,.logged-out .mobile-nav,.logged-out .app-main footer,.logged-out .logout-btn{display:none}
 .logged-out .app-main{max-width:850px;padding:0 24px}
 .logged-out .page-header{margin-bottom:0}
 .logout-btn{border:0;background:transparent;color:#8a8a8a;font-size:10px;padding:5px 0}
