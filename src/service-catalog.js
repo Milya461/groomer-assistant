@@ -109,7 +109,10 @@ const additionalServices = [
   item("addon:premium-spa", "Премиум СПА-уход", 1100, {
     type: "addon",
     minutes: 30,
-    note: "Для маленьких и средних питомцев; цена на скриншоте одинаковая"
+    sizeChoices: [
+      { value: "small", label: "Для маленьких", price: 1100 },
+      { value: "medium", label: "Для средних", price: 1100 }
+    ]
   }),
   item("addon:derma-spa", "Дерма СПА-уход", 600, {
     type: "addon",
