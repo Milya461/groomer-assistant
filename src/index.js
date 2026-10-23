@@ -4234,8 +4234,34 @@ function constantTimeHexEqual(left, right) {
 
 async function authenticateWebApp(request, env) {
   const header = request.headers.get("Authorization") || "";
+
+  if (header.startsWith("Bearer ")) {
+    const password = String(env.WEB_APP_PASSWORD || "");
+    if (password.length < 16) {
+      return { error: "Веб-вход не настроен. Добавь секрет WEB_APP_PASSWORD длиной не менее 16 символов в настройках Worker.", status: 503 };
+    }
+
+    const token = header.slice(7).trim();
+    const parts = token.split(".");
+    const expiresAt = Number(parts[0] || 0);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= nowSeconds ||
+        expiresAt > nowSeconds + 24 * 60 * 60 + 60 || parts.length !== 2) {
+      return { error: "Сеанс истёк. Войди ещё раз.", status: 401 };
+    }
+
+    const expected = bytesToHex(await hmacSha256(
+      new TextEncoder().encode(password),
+      new TextEncoder().encode("pretty-dogs-session:" + expiresAt)
+    ));
+    if (!constantTimeHexEqual(expected, parts[1].toLowerCase())) {
+      return { error: "Недействительный сеанс. Войди ещё раз.", status: 401 };
+    }
+    return { user: { id: null }, standalone: true };
+  }
+
   if (!header.startsWith("tma ")) {
-    return { error: "Открой приложение через Telegram.", status: 401 };
+    return { error: "Войди в приложение.", status: 401 };
   }
 
   const initData = header.slice(4);
@@ -4311,13 +4337,52 @@ async function handleWebApi(request, env) {
   }
 
   try {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (request.method === "POST" && path === "/api/login") {
+      const configuredPassword = String(env.WEB_APP_PASSWORD || "");
+      if (configuredPassword.length < 16) {
+        return webApiResponse({
+          error: "Веб-вход не настроен. В Cloudflare Worker добавь секрет WEB_APP_PASSWORD длиной не менее 16 символов."
+        }, 503);
+      }
+
+      let loginBody;
+      try {
+        loginBody = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать форму входа." }, 400);
+      }
+      const submittedPassword = String(loginBody.password || "");
+      if (!constantTimeHexEqual(configuredPassword, submittedPassword)) {
+        return webApiResponse({ error: "Пароль не подошёл. Проверь его и попробуй ещё раз." }, 401);
+      }
+
+      const expiresAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+      const signature = bytesToHex(await hmacSha256(
+        new TextEncoder().encode(configuredPassword),
+        new TextEncoder().encode("pretty-dogs-session:" + expiresAt)
+      ));
+      return webApiResponse({ ok: true, token: expiresAt + "." + signature, expiresAt });
+    }
+
     const auth = await authenticateWebApp(request, env);
     if (auth.error) return webApiResponse({ error: auth.error }, auth.status);
 
     await initializeDatabase(env);
+    if (auth.standalone) {
+      const owner = await env.DB.prepare(`
+        SELECT setting_value
+        FROM assistant_settings
+        WHERE setting_key = 'chat_id'
+      `).first();
+      if (!owner?.setting_value) {
+        return webApiResponse({ error: "Не найден владелец бота. Сначала открой бота в Telegram и отправь /start." }, 503);
+      }
+      auth.user = { id: String(owner.setting_value) };
+    }
 
-    const url = new URL(request.url);
-    const path = url.pathname;
     const date = localDate();
     const month = date.slice(0, 7);
     const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
