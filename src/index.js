@@ -5360,6 +5360,55 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (request.method === "GET" && url.pathname === "/manifest.webmanifest") {
+      const manifest = {
+        id: "/",
+        name: "Pretty Dogs — Groomer Assistant",
+        short_name: "Pretty Dogs",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#ffffff",
+        icons: [
+          {
+            src: "/apple-touch-icon-v1.png",
+            sizes: "180x180",
+            type: "image/png",
+            purpose: "any"
+          }
+        ]
+      };
+      return new Response(JSON.stringify(manifest), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/manifest+json; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "X-Content-Type-Options": "nosniff"
+        }
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/apple-touch-icon-v1.png") {
+      const asset = await fetch(
+        "https://raw.githubusercontent.com/Milya461/groomer-assistant/d5f9119d4f26820f74418937642e51fa1a971e3a/icons/apple-touch-icon.png"
+      );
+      if (!asset.ok) {
+        return new Response("App icon unavailable.", {
+          status: 502,
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+        });
+      }
+      return new Response(asset.body, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff"
+        }
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/health") {
       return new Response("Pretty Dogs web app is running.", {
         status: 200,
