@@ -236,6 +236,16 @@ await env.DB.prepare(`
   `).run();
 
   await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pet_cover_photos (
+      dog_id INTEGER PRIMARY KEY,
+      telegram_file_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (dog_id)
+        REFERENCES dogs(id) ON DELETE CASCADE
+    )
+  `).run();
+
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS earnings_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       service_date TEXT NOT NULL,
@@ -552,6 +562,26 @@ function shouldHavePhotoArchive(pet) {
 
   return photoBreeds.some(name => breed.includes(name));
 }
+function shouldShowWebGroomingCard(pet) {
+  if (String(pet?.species || "").toLowerCase().trim() !== "dog") return false;
+  const breed = String(pet.breed || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zа-я0-9]/g, "");
+  const excludedBreeds = [
+    "йорк", "york", "мопс", "pug", "чихуахуа", "chihuahua",
+    "бульдог", "bulldog", "кхс", "китайскаяхохлатая", "chinesecrested",
+    "джекрассел", "jackrussell", "кавалер", "cavalier",
+    "такса", "dachshund", "тойтерьер", "русскийтой", "toyterrier",
+    "фокстерьер", "foxterrier", "басенджи", "basenji",
+    "баварскаягончая", "bavarianmountainhound", "bayerischgebirgsschweisshund",
+    "спаниель", "spaniel", "птибрабансон", "petitbrabancon", "brabancon"
+  ];
+  return !excludedBreeds.some(name => breed.includes(name));
+}
+
 function parseSpecies(value) {
   const normalized = value.trim().toLowerCase();
 
@@ -4430,6 +4460,11 @@ async function handleWebApi(request, env) {
         SELECT id, name, species, breed, notes, warnings,
                COALESCE(
                  (
+                   SELECT pcp.dog_id
+                   FROM pet_cover_photos pcp
+                   WHERE pcp.dog_id = dogs.id
+                 ),
+                 (
                    SELECT gcp.id
                    FROM grooming_card_photos gcp
                    WHERE gcp.dog_id = dogs.id
@@ -4446,6 +4481,10 @@ async function handleWebApi(request, env) {
                  )
                ) AS cover_photo_id,
                CASE
+                 WHEN EXISTS (
+                   SELECT 1 FROM pet_cover_photos pcp
+                   WHERE pcp.dog_id = dogs.id
+                 ) THEN 'cover'
                  WHEN EXISTS (
                    SELECT 1 FROM grooming_card_photos gcp
                    WHERE gcp.dog_id = dogs.id
@@ -4501,6 +4540,44 @@ async function handleWebApi(request, env) {
       ).run();
 
       return webApiResponse({ ok: true, id: Number(result.meta.last_row_id) }, 201);
+    }
+
+    const coverPhotoImageMatch = path.match(/^\/api\/pet-cover-photos\/(\d+)\/image$/);
+    if (request.method === "GET" && coverPhotoImageMatch) {
+      const photo = await env.DB.prepare(`
+        SELECT telegram_file_id
+        FROM pet_cover_photos
+        WHERE dog_id = ?
+      `).bind(Number(coverPhotoImageMatch[1])).first();
+
+      if (!photo?.telegram_file_id) {
+        return webApiResponse({ error: "Главное фото питомца не найдено." }, 404);
+      }
+
+      const fileInfoResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
+      );
+      const fileInfo = await fileInfoResponse.json();
+      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
+        return webApiResponse({ error: "Не удалось получить главное фото питомца." }, 502);
+      }
+
+      const imageResponse = await fetch(
+        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
+      );
+      if (!imageResponse.ok) {
+        return webApiResponse({ error: "Не удалось загрузить главное фото питомца." }, 502);
+      }
+
+      return new Response(imageResponse.body, {
+        status: 200,
+        headers: {
+          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer"
+        }
+      });
     }
 
     const petPhotoImageMatch = path.match(/^\/api\/grooming-photos\/(\d+)\/image$/);
@@ -4579,6 +4656,78 @@ async function handleWebApi(request, env) {
       });
     }
 
+    const petCoverUploadMatch = path.match(/^\/api\/pets\/(\d+)\/cover-photo$/);
+    if (request.method === "POST" && petCoverUploadMatch) {
+      const petId = Number(petCoverUploadMatch[1]);
+      const pet = await env.DB.prepare(`
+        SELECT id, name
+        FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(petId).first();
+
+      if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
+
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать главное фото." }, 400);
+      }
+
+      const photoFile = form.get("photo");
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") {
+        return webApiResponse({ error: "Выбери главное фото питомца." }, 400);
+      }
+      if (!String(photoFile.type || "").startsWith("image/")) {
+        return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      }
+      if (photoFile.size > 10 * 1024 * 1024) {
+        return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      }
+
+      const upload = new FormData();
+      upload.append("chat_id", String(auth.user.id));
+      upload.append("photo", photoFile, photoFile.name || "pet-cover.jpg");
+
+      const telegramResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto`,
+        { method: "POST", body: upload }
+      );
+      const telegramResult = await telegramResponse.json();
+
+      if (!telegramResponse.ok || !telegramResult.ok || !telegramResult.result?.photo?.length) {
+        console.error("Web app main photo upload failed:", telegramResult);
+        return webApiResponse({ error: "Не удалось сохранить фото. Попробуй выбрать изображение поменьше." }, 502);
+      }
+
+      const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
+      await env.DB.prepare(`
+        INSERT INTO pet_cover_photos (dog_id, telegram_file_id, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(dog_id) DO UPDATE SET
+          telegram_file_id = excluded.telegram_file_id,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(petId, fileId).run();
+
+      try {
+        await fetch(
+          `${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: String(auth.user.id),
+              message_id: telegramResult.result.message_id
+            })
+          }
+        );
+      } catch (error) {
+        console.error("Temporary main photo message cleanup failed:", error);
+      }
+
+      return webApiResponse({ ok: true, petId, message: "Главное фото сохранено." }, 201);
+    }
+
     const petPhotosMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-photos$/);
     if (request.method === "POST" && petPhotosMatch) {
       const petId = Number(petPhotosMatch[1]);
@@ -4589,8 +4738,8 @@ async function handleWebApi(request, env) {
       `).bind(petId).first();
 
       if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
-      if (pet.species !== "dog" || !shouldHavePhotoArchive(pet)) {
-        return webApiResponse({ error: "Фото к карте доступны только для пород из действующего фотоархива." }, 400);
+      if (!shouldShowWebGroomingCard(pet)) {
+        return webApiResponse({ error: "Фото к карте стрижки недоступны для этого питомца." }, 400);
       }
 
       let form;
@@ -4799,6 +4948,11 @@ async function handleWebApi(request, env) {
       `).bind(petId).all();
 
       const photos = photoResult.results || [];
+      const profilePhoto = await env.DB.prepare(`
+        SELECT dog_id AS id, updated_at AS created_at
+        FROM pet_cover_photos
+        WHERE dog_id = ?
+      `).bind(petId).first();
       const visitCoverPhoto = await env.DB.prepare(`
         SELECT vp.id, vp.caption, vp.created_at
         FROM visit_photos vp
@@ -4811,8 +4965,9 @@ async function handleWebApi(request, env) {
       return webApiResponse({
         pet,
         groomingCard,
-        photoArchiveAllowed: shouldHavePhotoArchive(pet),
+        photoArchiveAllowed: shouldShowWebGroomingCard(pet),
         photos,
+        profilePhoto: profilePhoto || null,
         visitCoverPhoto: visitCoverPhoto || null,
         groomingPhotoCount: photos.length
       });
