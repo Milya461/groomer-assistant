@@ -605,6 +605,36 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   function detailRow(label,value) {
     return '<div class="detailrow"><div class="key">' + esc(label) + '</div><div class="val">' + esc(value || "—") + '</div></div>';
   }
+  function isGroomingCardExcluded(pet) {
+    if (!pet || pet.species !== "dog") return true;
+    const breed = String(pet.breed || "")
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zа-я0-9]+/g, " ")
+      .trim();
+    const excludedBreeds = [
+      "йорк", "york",
+      "мопс", "pug",
+      "чихуахуа", "chihuahua",
+      "бульдог", "bulldog",
+      "кхс", "китайская хохлатая", "chinese crested",
+      "джек рассел", "джекрассел", "jack russell",
+      "кавалер", "cavalier",
+      "такса", "dachshund",
+      "той терьер", "тойтерьер", "русский той", "toy terrier",
+      "фокстерьер", "фокс терьер", "fox terrier",
+      "басенджи", "basenji",
+      "баварская гончая", "bavarian mountain hound", "bayerischer gebirgsschweisshund",
+      "спаниель", "spaniel",
+      "пти брабансон", "пти брабансона", "petit brabancon", "brabancon"
+    ];
+    return excludedBreeds.some(function(name) {
+      return breed.indexOf(name) !== -1;
+    });
+  }
+
   async function renderPet(id) {
     currentScreen = "pet-detail";
     setHead("Карточка","Данные питомца");
@@ -634,7 +664,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       ["next_visit_changes","К следующему визиту"]
     ];
 
-    const cardSection = pet.species === "dog"
+    const cardSection = pet.species === "dog" && !isGroomingCardExcluded(pet)
       ? '<section class="detailsection"><div class="sectionhead" style="margin:0 0 12px"><h3 style="margin:0">Карта стрижки</h3></div>' +
         detailRow("Длина корпуса",card.body_length) +
         detailRow("Длина лап",card.legs_length) +
