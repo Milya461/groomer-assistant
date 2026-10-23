@@ -4516,6 +4516,44 @@ async function handleWebApi(request, env) {
       });
     }
 
+    const visitPhotoImageMatch = path.match(/^\/api\/visit-photos\/(\d+)\/image$/);
+    if (request.method === "GET" && visitPhotoImageMatch) {
+      const photo = await env.DB.prepare(`
+        SELECT telegram_file_id
+        FROM visit_photos
+        WHERE id = ? AND photo_type = 'after'
+      `).bind(Number(visitPhotoImageMatch[1])).first();
+
+      if (!photo?.telegram_file_id) {
+        return webApiResponse({ error: "Фотография визита не найдена." }, 404);
+      }
+
+      const fileInfoResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
+      );
+      const fileInfo = await fileInfoResponse.json();
+      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
+        return webApiResponse({ error: "Не удалось получить фотографию визита." }, 502);
+      }
+
+      const imageResponse = await fetch(
+        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
+      );
+      if (!imageResponse.ok) {
+        return webApiResponse({ error: "Не удалось загрузить фотографию визита." }, 502);
+      }
+
+      return new Response(imageResponse.body, {
+        status: 200,
+        headers: {
+          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer"
+        }
+      });
+    }
+
     const petPhotosMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-photos$/);
     if (request.method === "POST" && petPhotosMatch) {
       const petId = Number(petPhotosMatch[1]);
@@ -4645,7 +4683,32 @@ async function handleWebApi(request, env) {
         LIMIT 100
       `).all();
 
-      return webApiResponse({ visits: result.results || [] });
+      const visits = result.results || [];
+      const visitIds = visits.map(item => Number(item.id)).filter(Number.isFinite);
+      let photosByVisit = Object.create(null);
+      if (visitIds.length) {
+        const placeholders = visitIds.map(() => "?").join(", ");
+        const photoResult = await env.DB.prepare(`
+          SELECT id, appointment_id, photo_type, caption, created_at
+          FROM visit_photos
+          WHERE photo_type = 'after'
+            AND appointment_id IN (${placeholders})
+          ORDER BY created_at DESC, id DESC
+        `).bind(...visitIds).all();
+
+        for (const photo of photoResult.results || []) {
+          const visitId = Number(photo.appointment_id);
+          if (!photosByVisit[visitId]) photosByVisit[visitId] = [];
+          photosByVisit[visitId].push(photo);
+        }
+      }
+
+      return webApiResponse({
+        visits: visits.map(item => ({
+          ...item,
+          photos: photosByVisit[Number(item.id)] || []
+        }))
+      });
     }
 
     const petMatch = path.match(/^\/api\/pets\/(\d+)$/);
