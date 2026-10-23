@@ -4515,7 +4515,18 @@ async function handleWebApi(request, env) {
     if (request.method === "GET" && path === "/api/dashboard") {
       const queueResult = await env.DB.prepare(`
         SELECT a.id, a.appointment_time, a.status, a.queue_position,
-               a.actual_start_time, a.actual_end_time, a.actual_duration_minutes,
+               a.procedures, a.actual_start_time, a.actual_end_time,
+               a.actual_duration_minutes, a.planned_duration_minutes,
+               COALESCE((
+                 SELECT SUM(e.amount)
+                 FROM earnings_entries e
+                 WHERE e.appointment_id = a.id
+               ), 0) AS services_total,
+               COALESCE((
+                 SELECT SUM(e.earned)
+                 FROM earnings_entries e
+                 WHERE e.appointment_id = a.id
+               ), 0) AS earned,
                d.id AS dog_id, d.name, d.breed
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
