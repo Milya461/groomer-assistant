@@ -592,7 +592,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           method:editing ? "PUT" : "POST",
           body:JSON.stringify(body)
         });
-        if (currentScreen === "calendar") {
+        if (currentScreen === "calendar" || body.date !== moscowISODate()) {
           calendarSelectedDate = body.date;
           calendarMonth = body.date.slice(0,7);
           await renderCalendar();
