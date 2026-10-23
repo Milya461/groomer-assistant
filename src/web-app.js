@@ -384,17 +384,19 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const dayOff = !!data.dayOff;
     const rows = data.queue || [];
     content.innerHTML =
-      '<section class="hero"><div class="eyebrow">Заработок сегодня</div><div class="money">' + money(data.earnedToday) + '</div><div class="smallmuted">' + esc(data.dateDisplay) + '</div></section>' +
+      '<div class="dashboard-grid">' +
+        '<section class="hero dark"><div class="eyebrow">PRETTY DOGS · WORKSPACE</div><div class="hero-heading">День начинается с заботы.</div><div class="hero-desc">Все важное под рукой: очередь, питомцы, визиты и твои результаты за день.</div><div class="hero-meta"><span class="chip">' + esc(data.dateDisplay) + '</span><span class="chip">' + Number(counts.total || 0) + ' записей на сегодня</span></div></section>' +
+        '<section class="hero"><div class="eyebrow">Заработок сегодня</div><div class="money">' + money(data.earnedToday) + '</div><div class="smallmuted">' + Number(data.earningsCount || 0) + ' услуг учтено</div><div class="hero-meta"><span class="chip">Прогресс рабочего дня</span></div></section>' +
+      '</div>' +
       '<div class="metricgrid">' +
-        '<div class="metric"><div class="value">' + Number(counts.total || 0) + '</div><div class="label">Записей</div></div>' +
+        '<div class="metric"><div class="value">' + Number(counts.total || 0) + '</div><div class="label">Записей сегодня</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
-      '<div class="sectionhead"><h2>Очередь на сегодня</h2><span class="count">' + rows.length + '</span></div>' +
+      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div></div><span class="count">' + rows.length + ' ЗАПИСЕЙ</span></div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
       '<div id="visit-action-panel"></div>' +
-      '<button class="btn full" id="day-off" ' + (dayOff ? 'disabled' : '') + '>' + (dayOff ? 'Сегодня отмечено как выходной' : 'Сегодня не работаю') + '</button>' +
-      '<div class="smallmuted" style="margin-top:9px;line-height:1.45">' + (dayOff ? 'Автоматические напоминания на сегодня отключены.' : 'Отметь выходной, чтобы отключить автоматические рабочие и клиентские напоминания на сегодня. Записи не удаляются.') + '</div>';
+      '<section class="action-form"><div class="eyebrow">Режим работы</div><div style="font-size:14px;font-weight:700;margin:8px 0 5px">' + (dayOff ? 'Сегодня — выходной' : 'Рабочий день активен') + '</div><div class="smallmuted">' + (dayOff ? 'Автоматические напоминания на сегодня отключены.' : 'Отметь выходной, если сегодня не принимаешь клиентов. Записи останутся в расписании.') + '</div><button class="btn ' + (dayOff ? 'secondary' : '') + ' full" id="day-off" ' + (dayOff ? 'disabled' : '') + '>' + (dayOff ? 'Выходной отмечен' : 'Сегодня не работаю') + '</button></section>';
 
     const dayOffButton = document.getElementById("day-off");
     if (dayOffButton && !dayOff) dayOffButton.addEventListener("click", async function(){
