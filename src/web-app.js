@@ -79,6 +79,11 @@ footer{border-top:1px solid var(--line);margin-top:30px;padding-top:15px;color:#
 .formtextarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;font-size:13px;line-height:1.5;color:#111;background:#fff}
 .cardform{margin-top:15px}
 .cardform .field{display:block;margin:12px 0}
+.petform{margin-top:14px}
+.petform .field{display:block;margin:12px 0}
+.petform .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.petform .field input,.petform .field select{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;color:#111;font:inherit;font-size:14px}
+
 .cardform .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
 .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0 15px}
 .photo-tile{aspect-ratio:1;overflow:hidden;border-radius:8px;border:1px solid var(--line);background:var(--soft);display:flex;align-items:center;justify-content:center}
@@ -261,15 +266,81 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
       });
     });
   }
+  const PET_CARD_FIELDS = [
+    ["name","Имя","input"],
+    ["species","Вид","select"],
+    ["breed","Порода","input"],
+    ["age","Возраст","input"],
+    ["coat_features","Особенности шерсти","textarea"],
+    ["matting_tendency","Склонность к колтунам","textarea"],
+    ["sensitive_areas","Чувствительные зоны","textarea"],
+    ["clipper_reaction","Реакция на машинку","textarea"],
+    ["dryer_reaction","Реакция на фен","textarea"],
+    ["nail_clipper_reaction","Реакция на когтерез","textarea"],
+    ["warnings","Предупреждения","textarea"],
+    ["notes","Заметки","textarea"]
+  ];
+
+  function petCardFormHtml(pet) {
+    const fieldsHtml = PET_CARD_FIELDS.map(function(field) {
+      const key = field[0], label = field[1], type = field[2];
+      if (type === "select") {
+        return '<label class="field"><span>' + esc(label) + '</span><select name="species" required>' +
+          '<option value="dog" ' + (pet.species !== "cat" ? "selected" : "") + '>Собака</option>' +
+          '<option value="cat" ' + (pet.species === "cat" ? "selected" : "") + '>Кошка</option>' +
+          '</select></label>';
+      }
+      if (type === "textarea") {
+        return '<label class="field"><span>' + esc(label) + '</span><textarea class="formtextarea" name="' + key + '" rows="2">' + esc(pet[key] || "") + '</textarea></label>';
+      }
+      return '<label class="field"><span>' + esc(label) + '</span><input name="' + key + '" value="' + esc(pet[key] || "") + '" ' + (key === "name" ? 'required maxlength="100"' : "") + '></label>';
+    }).join("");
+    return '<form class="petform" id="pet-card-form">' + fieldsHtml +
+      '<button class="btn full" type="submit" id="pet-card-save">Сохранить карточку</button>' +
+      '<button class="btn secondary full" type="button" id="pet-card-cancel">Отмена</button>' +
+      '</form>';
+  }
+
+  function bindPetCardForm(slot, pet, petId) {
+    slot.innerHTML = petCardFormHtml(pet || {});
+    document.getElementById("pet-card-cancel").addEventListener("click",function(){slot.innerHTML="";});
+    document.getElementById("pet-card-form").addEventListener("submit",async function(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const body = {};
+      PET_CARD_FIELDS.forEach(function(field) {
+        body[field[0]] = form.elements[field[0]].value;
+      });
+      const saveButton = document.getElementById("pet-card-save");
+      saveButton.disabled = true;
+      saveButton.textContent = "Сохраняю…";
+      try {
+        const result = await api(petId ? "/api/pets/" + petId : "/api/pets", {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        await renderPet(Number(petId || result.id));
+      } catch(error) {
+        showError(error);
+      }
+    });
+    slot.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
   async function renderPets() {
     currentScreen = "pets";
     setHead("Питомцы","Карточки собак и кошек");
     content.innerHTML =
       '<div class="searchbar"><input id="pet-search" placeholder="Поиск по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
+      '<button class="btn secondary full" type="button" id="add-pet">＋ Добавить питомца</button>' +
+      '<div id="pet-editor-slot"></div>' +
       '<div id="pet-list" class="list"><div class="loading">Загружаю карточки…</div></div>';
 
     const searchInput = document.getElementById("pet-search");
     const searchButton = document.getElementById("pet-search-btn");
+    document.getElementById("add-pet").addEventListener("click",function() {
+      bindPetCardForm(document.getElementById("pet-editor-slot"), {name:"",species:"dog"}, null);
+    });
 
     async function runSearch() {
       petQuery = searchInput.value.trim();
@@ -379,12 +450,17 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
       detailRow("Реакция на фен",pet.dryer_reaction) +
       detailRow("Реакция на когтерез",pet.nail_clipper_reaction) +
       detailRow("Заметки",pet.notes) + '</section>' +
+      '<button class="btn secondary full" type="button" id="edit-pet">Редактировать карточку питомца</button>' +
+      '<div id="pet-card-editor-slot"></div>' +
       cardSection +
       photoSection +
       '<button class="btn secondary full" id="back-pets-bottom">Вернуться к питомцам</button>';
 
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
     document.getElementById("back-pets-bottom").addEventListener("click",function(){renderPets().catch(showError);});
+    document.getElementById("edit-pet").addEventListener("click",function() {
+      bindPetCardForm(document.getElementById("pet-card-editor-slot"), pet, id);
+    });
 
     const editCardButton = document.getElementById("edit-card");
     if (editCardButton) {
