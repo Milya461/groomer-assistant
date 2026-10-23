@@ -587,14 +587,17 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   async function renderPet(id) {
     currentScreen = "pet-detail";
     setHead("Карточка","Данные питомца");
-    objectUrls.forEach(function(url){ URL.revokeObjectURL(url); });
-    objectUrls = [];
+    clearObjectUrls();
     content.innerHTML = '<div class="loading">Открываю карточку…</div>';
 
     const data = await api("/api/pets/" + id);
     const pet = data.pet || {};
     const card = data.groomingCard || {};
     const photos = data.photos || [];
+    const coverInitials = String(pet.name || "?").trim().split(/\\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
+    const profileCover = photos.length
+      ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(photos[0].id) + '" src="" style="display:none">'
+      : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
     const cardFields = [
       ["body_length","Длина корпуса"],
       ["legs_length","Длина лап"],
@@ -639,8 +642,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
-      '<div class="detailtitle">' + esc(pet.name) + '</div>' +
-      '<div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ")) + '</div>' +
+      '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Особенности шерсти",pet.coat_features) +
       detailRow("Предупреждения",pet.warnings) +
@@ -726,23 +728,12 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     }
 
-    await Promise.all(photos.map(async function(photo) {
-      const image = content.querySelector('[data-photo-id="' + Number(photo.id) + '"]');
-      if (!image) return;
-      try {
-        const response = await fetch("/api/grooming-photos/" + Number(photo.id) + "/image",{
-          headers:{"Authorization":"tma " + initData},
-          cache:"no-store",
-          credentials:"same-origin"
-        });
-        if (!response.ok) return;
-        const imageUrl = URL.createObjectURL(await response.blob());
-        objectUrls.push(imageUrl);
-        image.src = imageUrl;
-      } catch(error) {
-        console.error("Could not load grooming photo:",error);
-      }
-    }));
+    const profileImage = content.querySelector("[data-profile-photo]");
+    const galleryImages = photos.map(function(photo) {
+      return loadPrivatePhoto(content.querySelector('[data-photo-id="' + Number(photo.id) + '"]'), photo.id);
+    });
+    if (profileImage && photos[0]) galleryImages.push(loadPrivatePhoto(profileImage, photos[0].id));
+    await Promise.all(galleryImages);
   }
   async function renderEarnings() {
     currentScreen = "earnings";
