@@ -4388,6 +4388,10 @@ async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId 
   const [hour, minute] = targetTime.split(":").map(Number);
   const targetStart = hour * 60 + minute;
   const targetEnd = targetStart + Math.max(0, Number(plannedDuration || 0));
+  const shiftEndMinutes = Number(shift.end_time.slice(0, 2)) * 60 + Number(shift.end_time.slice(3, 5));
+  if (plannedDuration > 0 && targetEnd > shiftEndMinutes) {
+    return { error: "Плановая продолжительность визита выходит за пределы смены.", status: 400 };
+  }
   for (const other of occupied.results || []) {
     if (other.appointment_time === targetTime) {
       return { error: "На это время уже есть запись. Выбери другое время.", status: 409 };
