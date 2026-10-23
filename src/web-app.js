@@ -130,6 +130,19 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-procedures{font-size:11px;line-height:1.55;color:#555;margin-top:12px;padding-top:10px;border-top:1px solid #eee;white-space:pre-wrap}
 .action-form{padding:18px;border:1px solid var(--line);border-radius:13px;margin:17px 0}
 footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#a0a0a0;font-size:9px;letter-spacing:.12em;display:flex;justify-content:space-between}
+.auth-card{max-width:460px;margin:0 auto;padding:26px}
+.auth-logo{display:grid;place-items:center;width:46px;height:46px;margin-bottom:26px;border-radius:14px;background:#111;color:#fff;font-size:14px;font-weight:800;letter-spacing:-.07em}
+.auth-copy{font-size:12px;line-height:1.65;color:var(--muted);margin:11px 0 23px}
+.auth-field{display:block;margin:18px 0}
+.auth-field span{display:block;font-size:10px;color:var(--muted);margin-bottom:7px}
+.auth-field input{width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:14px;background:#fff;color:#111}
+.auth-error{display:none;padding:11px 13px;margin:10px 0 4px;border:1px solid #d5d5d5;border-radius:9px;color:#333;font-size:12px;line-height:1.5}
+.logged-out .shell{grid-template-columns:minmax(0,1fr)}
+.logged-out .sidebar,.logged-out .mobile-nav,.logged-out .app-main footer{display:none}
+.logged-out .app-main{max-width:850px;padding:0 24px}
+.logged-out .page-header{margin-bottom:0}
+.logout-btn{border:0;background:transparent;color:#8a8a8a;font-size:10px;padding:5px 0}
+.logout-btn:hover{color:#111}
 @media(max-width:980px){.shell{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding-left:13px;padding-right:12px}.app-main{padding-left:26px;padding-right:26px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
 @media(max-width:660px){
   body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
@@ -212,6 +225,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let earningsRange = "today";
   let lastDashboard = null;
   let objectUrls = [];
+  let sessionToken = "";
+  try { sessionToken = sessionStorage.getItem("pretty-dogs-session") || ""; } catch(e) {}
+
+  const headerDate = document.getElementById("header-date");
+  if (headerDate) {
+    headerDate.textContent = new Intl.DateTimeFormat("ru-RU", {
+      weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Moscow"
+    }).format(new Date());
+  }
 
   if (tg) {
     tg.ready();
@@ -240,18 +262,96 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       tab.classList.toggle("active", tab.dataset.screen === activeScreen);
     });
   }
+  function authHeaders() {
+    if (initData) return {"Authorization":"tma " + initData};
+    if (sessionToken) return {"Authorization":"Bearer " + sessionToken};
+    return {};
+  }
+  function clearObjectUrls() {
+    objectUrls.forEach(function(url) { URL.revokeObjectURL(url); });
+    objectUrls = [];
+  }
+  async function loadPrivatePhoto(image, photoId) {
+    if (!image || !photoId) return;
+    try {
+      const response = await fetch("/api/grooming-photos/" + Number(photoId) + "/image", {
+        headers: authHeaders(), cache: "no-store", credentials: "same-origin"
+      });
+      if (!response.ok) return;
+      const imageUrl = URL.createObjectURL(await response.blob());
+      objectUrls.push(imageUrl);
+      image.src = imageUrl;
+      image.style.display = "block";
+      const fallback = image.parentNode && image.parentNode.querySelector("[data-photo-fallback]");
+      if (fallback) fallback.style.display = "none";
+    } catch(error) {
+      console.error("Could not load grooming photo:", error);
+    }
+  }
   async function api(path, options) {
-    if (!initData) throw new Error("Открой приложение через Telegram: чат с ботом → /start → «Открыть приложение».");
     const opts = options || {};
-    const headers = Object.assign({},opts.headers || {},{"Authorization":"tma " + initData});
+    const headers = Object.assign({},opts.headers || {},authHeaders());
     if (opts.body && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
     const response = await fetch(path,Object.assign({},opts,{headers:headers,credentials:"same-origin",cache:"no-store"}));
     let data = {};
     try { data = await response.json(); } catch(e) {}
-    if (!response.ok) throw new Error(data.error || "Не удалось загрузить данные.");
+    if (!response.ok) {
+      const error = new Error(data.error || "Не удалось загрузить данные.");
+      error.status = response.status;
+      if (!initData && response.status === 401 && path !== "/api/login") {
+        sessionToken = "";
+        try { sessionStorage.removeItem("pretty-dogs-session"); } catch(e) {}
+      }
+      throw error;
+    }
     return data;
   }
+  function renderLogin(message) {
+    currentScreen = "login";
+    document.body.classList.add("logged-out");
+    setHead("Войти в Pretty Dogs","Личное рабочее пространство грумера");
+    content.innerHTML =
+      '<section class="hero auth-card">' +
+        '<div class="auth-logo">PD</div>' +
+        '<div class="eyebrow">PRIVATE GROOMER SPACE</div>' +
+        '<h2 style="font-size:26px;line-height:1.12;letter-spacing:-.05em;margin-top:12px">Всё для твоей работы.</h2>' +
+        '<p class="auth-copy">Расписание, карточки питомцев, история визитов и заработок — в одном спокойном пространстве.</p>' +
+        '<form id="login-form">' +
+          '<label class="auth-field"><span>ПАРОЛЬ ДОСТУПА</span><input type="password" name="password" autocomplete="current-password" placeholder="Введи пароль" required></label>' +
+          '<div class="auth-error" id="login-error">' + esc(message || "") + '</div>' +
+          '<button class="btn full" type="submit" id="login-submit">Открыть приложение</button>' +
+        '</form>' +
+      '</section>';
+    const alertBox = document.getElementById("login-error");
+    if (message) alertBox.style.display = "block";
+    document.getElementById("login-form").addEventListener("submit",async function(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const pass = form.elements.password.value;
+      const submit = document.getElementById("login-submit");
+      const alert = document.getElementById("login-error");
+      submit.disabled = true;
+      submit.textContent = "Проверяю…";
+      alert.style.display = "none";
+      try {
+        const result = await api("/api/login",{method:"POST",body:JSON.stringify({password:pass})});
+        sessionToken = result.token;
+        try { sessionStorage.setItem("pretty-dogs-session", sessionToken); } catch(e) {}
+        document.body.classList.remove("logged-out");
+        await navigate("today");
+      } catch(error) {
+        alert.textContent = error.message || "Не удалось войти.";
+        alert.style.display = "block";
+        submit.disabled = false;
+        submit.textContent = "Открыть приложение";
+      }
+    });
+  }
   function showError(error) {
+    if (!initData && error && error.status === 401) {
+      renderLogin("Сеанс истёк. Введи пароль ещё раз.");
+      return;
+    }
     content.innerHTML = '<div class="notice"><strong>Не удалось открыть приложение</strong><p>' + esc(error && error.message ? error.message : "Попробуй открыть его ещё раз.") + '</p></div>';
   }
   function statusText(status) {
