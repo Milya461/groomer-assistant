@@ -4408,9 +4408,195 @@ async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId 
   return { shift };
 }
 
+
+const R2_PHOTO_PREFIX = "r2:";
+
+async function savePhotoToR2(env, key, photoFile) {
+  if (!env.PHOTOS) {
+    return { error: "Не подключено хранилище фотографий. Создай R2 bucket pretty-dogs-photos и добавь привязку PHOTOS в Cloudflare Worker.", status: 503 };
+  }
+  await env.PHOTOS.put(key, await photoFile.arrayBuffer(), {
+    httpMetadata: { contentType: String(photoFile.type || "image/jpeg") }
+  });
+  return { storedValue: R2_PHOTO_PREFIX + key };
+}
+
+async function readStoredPhotoResponse(env, storedValue, notFoundMessage, loadErrorMessage) {
+  if (!storedValue) return webApiResponse({ error: notFoundMessage }, 404);
+  if (storedValue.startsWith(R2_PHOTO_PREFIX)) {
+    if (!env.PHOTOS) {
+      return webApiResponse({ error: "Хранилище фотографий PHOTOS не подключено." }, 503);
+    }
+    const object = await env.PHOTOS.get(storedValue.slice(R2_PHOTO_PREFIX.length));
+    if (!object) return webApiResponse({ error: notFoundMessage }, 404);
+    return new Response(object.body, {
+      status: 200,
+      headers: {
+        "Content-Type": object.httpMetadata?.contentType || "image/jpeg",
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer"
+      }
+    });
+  }
+  if (!env.BOT_TOKEN) {
+    return webApiResponse({
+      error: "Эта фотография ещё хранится в Telegram. Сначала перенеси старые фотографии в разделe «Главное», затем отключай бота."
+    }, 503);
+  }
+  const fileInfoResponse = await fetch(
+    `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(storedValue)}`
+  );
+  const fileInfo = await fileInfoResponse.json();
+  if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
+    return webApiResponse({ error: loadErrorMessage }, 502);
+  }
+  const imageResponse = await fetch(
+    `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
+  );
+  if (!imageResponse.ok) return webApiResponse({ error: loadErrorMessage }, 502);
+  return new Response(imageResponse.body, {
+    status: 200,
+    headers: {
+      "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer"
+    }
+  });
+}
+
+async function getPhotoMigrationStatus(env) {
+  const [covers, grooming, visits] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) AS count FROM pet_cover_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM grooming_card_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM visit_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first()
+  ]);
+  const counts = {
+    covers: Number(covers?.count || 0),
+    grooming: Number(grooming?.count || 0),
+    visits: Number(visits?.count || 0)
+  };
+  return { ...counts, total: counts.covers + counts.grooming + counts.visits };
+}
+
+async function migrateLegacyTelegramPhotos(env, limit = 8) {
+  if (!env.PHOTOS) {
+    return { error: "Сначала создай R2 bucket pretty-dogs-photos и привяжи его к Worker через PHOTOS.", status: 503 };
+  }
+  if (!env.BOT_TOKEN) {
+    return { error: "Для переноса старых фото нужен токен Telegram. Пока не удаляй бота и его токен.", status: 503 };
+  }
+  const [coverRows, groomingRows, visitRows] = await Promise.all([
+    env.DB.prepare("SELECT dog_id AS id, telegram_file_id AS file_id FROM pet_cover_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY dog_id LIMIT 20").all(),
+    env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM grooming_card_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all(),
+    env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM visit_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all()
+  ]);
+  const tasks = [
+    ...(coverRows.results || []).map(row => ({ table: "cover", id: Number(row.id), fileId: row.file_id, key: "covers/" + Number(row.id) })),
+    ...(groomingRows.results || []).map(row => ({ table: "grooming", id: Number(row.id), fileId: row.file_id, key: "grooming/" + Number(row.id) })),
+    ...(visitRows.results || []).map(row => ({ table: "visit", id: Number(row.id), fileId: row.file_id, key: "visits/" + Number(row.id) }))
+  ].slice(0, Math.max(1, Math.min(12, Number(limit) || 8)));
+  let migrated = 0;
+  const errors = [];
+  for (const task of tasks) {
+    try {
+      const fileInfoResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(task.fileId)}`
+      );
+      const fileInfo = await fileInfoResponse.json();
+      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
+        throw new Error("Telegram не вернул файл");
+      }
+      const imageResponse = await fetch(
+        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
+      );
+      if (!imageResponse.ok) throw new Error("Не удалось скачать файл из Telegram");
+      await env.PHOTOS.put(task.key, await imageResponse.arrayBuffer(), {
+        httpMetadata: { contentType: imageResponse.headers.get("Content-Type") || "image/jpeg" }
+      });
+      const value = R2_PHOTO_PREFIX + task.key;
+      if (task.table === "cover") {
+        await env.DB.prepare("UPDATE pet_cover_photos SET telegram_file_id = ?, updated_at = CURRENT_TIMESTAMP WHERE dog_id = ?")
+          .bind(value, task.id).run();
+      } else if (task.table === "grooming") {
+        await env.DB.prepare("UPDATE grooming_card_photos SET telegram_file_id = ? WHERE id = ?")
+          .bind(value, task.id).run();
+      } else {
+        await env.DB.prepare("UPDATE visit_photos SET telegram_file_id = ? WHERE id = ?")
+          .bind(value, task.id).run();
+      }
+      migrated += 1;
+    } catch (error) {
+      errors.push({ id: task.id, type: task.table, message: String(error?.message || error).slice(0, 180) });
+    }
+  }
+  const status = await getPhotoMigrationStatus(env);
+  return { migrated, remaining: status.total, status, errors };
+}
+
+async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, servicesText) {
+  const parsed = parseServiceLines(servicesText);
+  if (parsed.error) return { error: parsed.error, status: 400 };
+  const appointment = await env.DB.prepare(`
+    SELECT a.id, a.status, a.appointment_date, a.appointment_time,
+           a.actual_start_time, d.name
+    FROM appointments a
+    JOIN dogs d ON d.id = a.dog_id
+    WHERE a.id = ?
+  `).bind(appointmentId).first();
+  if (!appointment) return { error: "Визит не найден.", status: 404 };
+  if (appointment.appointment_date !== appointmentDate) {
+    return { error: "Из веб-приложения можно завершать только сегодняшние визиты.", status: 400 };
+  }
+  if (appointment.status !== "in_progress") {
+    return { error: "Визит не находится в работе.", status: 409 };
+  }
+  const services = parsed.services;
+  const endTime = localTime();
+  const startTime = appointment.actual_start_time || appointment.appointment_time || endTime;
+  const startMs = localDateTimeMs(appointment.appointment_date, startTime);
+  const endMs = localDateTimeMs(appointment.appointment_date, endTime);
+  const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+  const statements = services.map((service, index) =>
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO earnings_entries (
+        service_date, description, amount, rate, earned,
+        appointment_id, source, source_id
+      ) VALUES (?, ?, ?, 35, ?, ?, 'visit', ?)
+    `).bind(
+      appointment.appointment_date,
+      service.description,
+      service.amount,
+      Math.round(service.amount * 0.35 * 100) / 100,
+      appointmentId,
+      `${appointmentId}:${index + 1}`
+    )
+  );
+  statements.push(env.DB.prepare(`
+    UPDATE appointments
+    SET status = 'completed',
+        procedures = ?,
+        actual_end_time = ?,
+        actual_duration_minutes = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status = 'in_progress'
+  `).bind(
+    services.map(service => `${service.description}: ${service.amount}`).join("; "),
+    endTime,
+    durationMinutes,
+    appointmentId
+  ));
+  await env.DB.batch(statements);
+  const updated = await env.DB.prepare("SELECT status, actual_duration_minutes FROM appointments WHERE id = ?")
+    .bind(appointmentId).first();
+  if (updated?.status !== "completed") return { error: "Не удалось завершить визит.", status: 500 };
+  return { appointmentId, actualDurationMinutes: Number(updated.actual_duration_minutes || 0) };
+}
+
 async function handleWebApi(request, env) {
-  if (!env.BOT_TOKEN || !env.DB) {
-    return webApiResponse({ error: "Приложение не настроено на сервере." }, 500);
+  if (!env.DB) {
+    return webApiResponse({ error: "Не подключена база данных D1." }, 500);
   }
 
   try {
@@ -4448,21 +4634,22 @@ async function handleWebApi(request, env) {
     if (auth.error) return webApiResponse({ error: auth.error }, auth.status);
 
     await initializeDatabase(env);
-    if (auth.standalone) {
-      const owner = await env.DB.prepare(`
-        SELECT setting_value
-        FROM assistant_settings
-        WHERE setting_key = 'chat_id'
-      `).first();
-      if (!owner?.setting_value) {
-        return webApiResponse({ error: "Не найден владелец бота. Сначала открой бота в Telegram и отправь /start." }, 503);
-      }
-      auth.user = { id: String(owner.setting_value) };
-    }
+    if (auth.standalone) auth.user = { id: "web-app" };
 
     const date = localDate();
     const month = date.slice(0, 7);
     const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
+
+    if (request.method === "GET" && path === "/api/admin/photo-migration-status") {
+      const status = await getPhotoMigrationStatus(env);
+      return webApiResponse({ status, photosBucketConfigured: Boolean(env.PHOTOS), botTokenConfigured: Boolean(env.BOT_TOKEN) });
+    }
+
+    if (request.method === "POST" && path === "/api/admin/migrate-photos") {
+      const result = await migrateLegacyTelegramPhotos(env, 8);
+      if (result.error) return webApiResponse({ error: result.error }, result.status || 503);
+      return webApiResponse({ ok: true, ...result });
+    }
 
     if (request.method === "GET" && path === "/api/work-shifts") {
       const targetMonth = String(url.searchParams.get("month") || month);
@@ -4779,266 +4966,96 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, id: Number(result.meta.last_row_id) }, 201);
     }
 
-    const coverPhotoImageMatch = path.match(/^\/api\/pet-cover-photos\/(\d+)\/image$/);
+    const coverPhotoImageMatch = path.match(/^\\/api\\/pet-cover-photos\\/(\\d+)\\/image$/);
     if (request.method === "GET" && coverPhotoImageMatch) {
-      const photo = await env.DB.prepare(`
-        SELECT telegram_file_id
-        FROM pet_cover_photos
-        WHERE dog_id = ?
-      `).bind(Number(coverPhotoImageMatch[1])).first();
-
-      if (!photo?.telegram_file_id) {
-        return webApiResponse({ error: "Главное фото питомца не найдено." }, 404);
-      }
-
-      const fileInfoResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
-      );
-      const fileInfo = await fileInfoResponse.json();
-      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
-        return webApiResponse({ error: "Не удалось получить главное фото питомца." }, 502);
-      }
-
-      const imageResponse = await fetch(
-        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
-      );
-      if (!imageResponse.ok) {
-        return webApiResponse({ error: "Не удалось загрузить главное фото питомца." }, 502);
-      }
-
-      return new Response(imageResponse.body, {
-        status: 200,
-        headers: {
-          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
-          "Cache-Control": "private, max-age=300",
-          "X-Content-Type-Options": "nosniff",
-          "Referrer-Policy": "no-referrer"
-        }
-      });
+      const photo = await env.DB.prepare("SELECT telegram_file_id FROM pet_cover_photos WHERE dog_id = ?")
+        .bind(Number(coverPhotoImageMatch[1])).first();
+      return readStoredPhotoResponse(env, photo?.telegram_file_id, "Главное фото питомца не найдено.", "Не удалось загрузить главное фото питомца.");
     }
 
-    const petPhotoImageMatch = path.match(/^\/api\/grooming-photos\/(\d+)\/image$/);
+    const petPhotoImageMatch = path.match(/^\\/api\\/grooming-photos\\/(\\d+)\\/image$/);
     if (request.method === "GET" && petPhotoImageMatch) {
-      const photo = await env.DB.prepare(`
-        SELECT telegram_file_id
-        FROM grooming_card_photos
-        WHERE id = ?
-      `).bind(Number(petPhotoImageMatch[1])).first();
-
-      if (!photo?.telegram_file_id) {
-        return webApiResponse({ error: "Фотография не найдена." }, 404);
-      }
-
-      const fileInfoResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
-      );
-      const fileInfo = await fileInfoResponse.json();
-      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
-        return webApiResponse({ error: "Не удалось получить фотографию." }, 502);
-      }
-
-      const imageResponse = await fetch(
-        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
-      );
-      if (!imageResponse.ok) {
-        return webApiResponse({ error: "Не удалось загрузить фотографию." }, 502);
-      }
-
-      return new Response(imageResponse.body, {
-        status: 200,
-        headers: {
-          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
-          "Cache-Control": "private, max-age=300",
-          "X-Content-Type-Options": "nosniff",
-          "Referrer-Policy": "no-referrer"
-        }
-      });
+      const photo = await env.DB.prepare("SELECT telegram_file_id FROM grooming_card_photos WHERE id = ?")
+        .bind(Number(petPhotoImageMatch[1])).first();
+      return readStoredPhotoResponse(env, photo?.telegram_file_id, "Фотография не найдена.", "Не удалось загрузить фотографию.");
     }
 
-    const visitPhotoImageMatch = path.match(/^\/api\/visit-photos\/(\d+)\/image$/);
+    const visitPhotoImageMatch = path.match(/^\\/api\\/visit-photos\\/(\\d+)\\/image$/);
     if (request.method === "GET" && visitPhotoImageMatch) {
-      const photo = await env.DB.prepare(`
-        SELECT telegram_file_id
-        FROM visit_photos
-        WHERE id = ? AND photo_type = 'after'
-      `).bind(Number(visitPhotoImageMatch[1])).first();
-
-      if (!photo?.telegram_file_id) {
-        return webApiResponse({ error: "Фотография визита не найдена." }, 404);
-      }
-
-      const fileInfoResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
-      );
-      const fileInfo = await fileInfoResponse.json();
-      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
-        return webApiResponse({ error: "Не удалось получить фотографию визита." }, 502);
-      }
-
-      const imageResponse = await fetch(
-        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
-      );
-      if (!imageResponse.ok) {
-        return webApiResponse({ error: "Не удалось загрузить фотографию визита." }, 502);
-      }
-
-      return new Response(imageResponse.body, {
-        status: 200,
-        headers: {
-          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
-          "Cache-Control": "private, max-age=300",
-          "X-Content-Type-Options": "nosniff",
-          "Referrer-Policy": "no-referrer"
-        }
-      });
+      const photo = await env.DB.prepare("SELECT telegram_file_id FROM visit_photos WHERE id = ? AND photo_type = 'after'")
+        .bind(Number(visitPhotoImageMatch[1])).first();
+      return readStoredPhotoResponse(env, photo?.telegram_file_id, "Фотография визита не найдена.", "Не удалось загрузить фотографию визита.");
     }
 
-    const petCoverUploadMatch = path.match(/^\/api\/pets\/(\d+)\/cover-photo$/);
+    const petCoverUploadMatch = path.match(/^\\/api\\/pets\\/(\\d+)\\/cover-photo$/);
     if (request.method === "POST" && petCoverUploadMatch) {
       const petId = Number(petCoverUploadMatch[1]);
-      const pet = await env.DB.prepare(`
-        SELECT id, name
-        FROM dogs
-        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
-      `).bind(petId).first();
-
+      const pet = await env.DB.prepare("SELECT id FROM dogs WHERE id = ? AND COALESCE(is_temporary, 0) = 0")
+        .bind(petId).first();
       if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
-
       let form;
-      try {
-        form = await request.formData();
-      } catch {
-        return webApiResponse({ error: "Не удалось прочитать главное фото." }, 400);
-      }
-
+      try { form = await request.formData(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать главное фото." }, 400); }
       const photoFile = form.get("photo");
-      if (!photoFile || typeof photoFile.arrayBuffer !== "function") {
-        return webApiResponse({ error: "Выбери главное фото питомца." }, 400);
-      }
-      if (!String(photoFile.type || "").startsWith("image/")) {
-        return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
-      }
-      if (photoFile.size > 10 * 1024 * 1024) {
-        return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
-      }
-
-      const upload = new FormData();
-      upload.append("chat_id", String(auth.user.id));
-      upload.append("photo", photoFile, photoFile.name || "pet-cover.jpg");
-
-      const telegramResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto`,
-        { method: "POST", body: upload }
-      );
-      const telegramResult = await telegramResponse.json();
-
-      if (!telegramResponse.ok || !telegramResult.ok || !telegramResult.result?.photo?.length) {
-        console.error("Web app main photo upload failed:", telegramResult);
-        return webApiResponse({ error: "Не удалось сохранить фото. Попробуй выбрать изображение поменьше." }, 502);
-      }
-
-      const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") return webApiResponse({ error: "Выбери главное фото питомца." }, 400);
+      if (!String(photoFile.type || "").startsWith("image/")) return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      if (photoFile.size > 10 * 1024 * 1024) return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      const stored = await savePhotoToR2(env, "covers/" + petId, photoFile);
+      if (stored.error) return webApiResponse({ error: stored.error }, stored.status);
       await env.DB.prepare(`
         INSERT INTO pet_cover_photos (dog_id, telegram_file_id, updated_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(dog_id) DO UPDATE SET
           telegram_file_id = excluded.telegram_file_id,
           updated_at = CURRENT_TIMESTAMP
-      `).bind(petId, fileId).run();
-
-      try {
-        await fetch(
-          `${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: String(auth.user.id),
-              message_id: telegramResult.result.message_id
-            })
-          }
-        );
-      } catch (error) {
-        console.error("Temporary main photo message cleanup failed:", error);
-      }
-
+      `).bind(petId, stored.storedValue).run();
       return webApiResponse({ ok: true, petId, message: "Главное фото сохранено." }, 201);
     }
 
-    const petPhotosMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-photos$/);
+    const petPhotosMatch = path.match(/^\\/api\\/pets\\/(\\d+)\\/grooming-photos$/);
     if (request.method === "POST" && petPhotosMatch) {
       const petId = Number(petPhotosMatch[1]);
-      const pet = await env.DB.prepare(`
-        SELECT id, name, species, breed
-        FROM dogs
-        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
-      `).bind(petId).first();
-
+      const pet = await env.DB.prepare("SELECT id, name, species, breed FROM dogs WHERE id = ? AND COALESCE(is_temporary, 0) = 0")
+        .bind(petId).first();
       if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
-      if (!shouldShowWebGroomingCard(pet)) {
-        return webApiResponse({ error: "Фото к карте стрижки недоступны для этого питомца." }, 400);
-      }
-
+      if (!shouldShowWebGroomingCard(pet)) return webApiResponse({ error: "Фото к карте стрижки недоступны для этого питомца." }, 400);
       let form;
-      try {
-        form = await request.formData();
-      } catch {
-        return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400);
-      }
-
+      try { form = await request.formData(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400); }
       const photoFile = form.get("photo");
-      if (!photoFile || typeof photoFile.arrayBuffer !== "function") {
-        return webApiResponse({ error: "Выбери фотографию." }, 400);
-      }
-      if (!String(photoFile.type || "").startsWith("image/")) {
-        return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
-      }
-      if (photoFile.size > 10 * 1024 * 1024) {
-        return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
-      }
-
-      const upload = new FormData();
-      upload.append("chat_id", String(auth.user.id));
-      upload.append("photo", photoFile, photoFile.name || "grooming-card.jpg");
-
-      const telegramResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto`,
-        { method: "POST", body: upload }
-      );
-      const telegramResult = await telegramResponse.json();
-
-      if (!telegramResponse.ok || !telegramResult.ok || !telegramResult.result?.photo?.length) {
-        console.error("Web app photo upload failed:", telegramResult);
-        return webApiResponse({ error: "Telegram не смог принять фотографию. Попробуй выбрать изображение поменьше." }, 502);
-      }
-
-      const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") return webApiResponse({ error: "Выбери фотографию." }, 400);
+      if (!String(photoFile.type || "").startsWith("image/")) return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      if (photoFile.size > 10 * 1024 * 1024) return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      const key = "grooming/" + petId + "/" + crypto.randomUUID();
+      const stored = await savePhotoToR2(env, key, photoFile);
+      if (stored.error) return webApiResponse({ error: stored.error }, stored.status);
       const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
-
-      await env.DB.prepare(`
-        INSERT INTO grooming_card_photos (
-          dog_id, telegram_file_id, caption
-        ) VALUES (?, ?, ?)
-      `).bind(petId, fileId, caption).run();
-
-      // The photo is sent temporarily to obtain Telegram's durable file_id, then removed from the chat.
-      try {
-        await fetch(
-          `${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: String(auth.user.id),
-              message_id: telegramResult.result.message_id
-            })
-          }
-        );
-      } catch (error) {
-        console.error("Temporary photo message cleanup failed:", error);
-      }
-
+      await env.DB.prepare("INSERT INTO grooming_card_photos (dog_id, telegram_file_id, caption) VALUES (?, ?, ?)")
+        .bind(petId, stored.storedValue, caption).run();
       return webApiResponse({ ok: true, petId, caption });
+    }
+
+    const afterVisitPhotosMatch = path.match(/^\\/api\\/appointments\\/(\\d+)\\/after-photos$/);
+    if (request.method === "POST" && afterVisitPhotosMatch) {
+      const appointmentId = Number(afterVisitPhotosMatch[1]);
+      const appointment = await env.DB.prepare("SELECT id, status FROM appointments WHERE id = ?")
+        .bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
+      if (appointment.status !== "completed") return webApiResponse({ error: "Добавить фото после визита можно после его завершения." }, 409);
+      let form;
+      try { form = await request.formData(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400); }
+      const photoFile = form.get("photo");
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") return webApiResponse({ error: "Выбери фотографию." }, 400);
+      if (!String(photoFile.type || "").startsWith("image/")) return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      if (photoFile.size > 10 * 1024 * 1024) return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      const key = "visits/" + appointmentId + "/" + crypto.randomUUID();
+      const stored = await savePhotoToR2(env, key, photoFile);
+      if (stored.error) return webApiResponse({ error: stored.error }, stored.status);
+      const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
+      const inserted = await env.DB.prepare("INSERT INTO visit_photos (appointment_id, photo_type, telegram_file_id, caption) VALUES (?, 'after', ?, ?)")
+        .bind(appointmentId, stored.storedValue, caption).run();
+      return webApiResponse({ ok: true, appointmentId, photoId: Number(inserted.meta.last_row_id), message: "Фото после визита сохранено." }, 201);
     }
 
     const cardEditMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-card$/);
@@ -5339,7 +5356,7 @@ async function handleWebApi(request, env) {
     if (request.method === "POST" && startVisitMatch) {
       const appointmentId = Number(startVisitMatch[1]);
       const appointment = await env.DB.prepare(`
-        SELECT id, dog_id, appointment_date, status
+        SELECT id, dog_id, appointment_date, appointment_time, status
         FROM appointments
         WHERE id = ?
       `).bind(appointmentId).first();
@@ -5352,7 +5369,21 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Эта запись уже не ожидает начала визита." }, 409);
       }
 
-      await startVisit(env, String(auth.user.id), appointment.dog_id, appointmentId);
+      const now = localTime();
+      const scheduledMs = localDateTimeMs(appointment.appointment_date, appointment.appointment_time || now);
+      const nowMs = localDateTimeMs(date, now);
+      const startTime = nowMs >= scheduledMs && nowMs <= scheduledMs + 10 * 60 * 1000
+        ? appointment.appointment_time
+        : now;
+      await env.DB.prepare(`
+        UPDATE appointments
+        SET status = 'in_progress', actual_start_time = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('scheduled', 'waiting')
+      `).bind(startTime, appointmentId).run();
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO assistant_appointment_state (appointment_id)
+        VALUES (?)
+      `).bind(appointmentId).run();
       const updated = await env.DB.prepare(`
         SELECT status, actual_start_time
         FROM appointments
@@ -5369,55 +5400,24 @@ async function handleWebApi(request, env) {
     const finishVisitMatch = path.match(/^\/api\/visits\/(\d+)\/finish$/);
     if (request.method === "POST" && finishVisitMatch) {
       const appointmentId = Number(finishVisitMatch[1]);
-      const appointment = await env.DB.prepare(`
-        SELECT a.id, a.appointment_date, a.status, d.name
-        FROM appointments a
-        JOIN dogs d ON d.id = a.dog_id
-        WHERE a.id = ?
-      `).bind(appointmentId).first();
-
-      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
-      if (appointment.appointment_date !== date) {
-        return webApiResponse({ error: "Из веб-приложения можно завершать только сегодняшние визиты." }, 400);
-      }
-      if (appointment.status !== "in_progress") {
-        return webApiResponse({ error: "Визит не находится в работе." }, 409);
-      }
-
       let body;
       try {
         body = await request.json();
       } catch {
         return webApiResponse({ error: "Не удалось прочитать услуги." }, 400);
       }
-
       const servicesText = String(body.servicesText || "").trim();
-      const parsed = parseServiceLines(servicesText);
-      if (parsed.error) return webApiResponse({ error: parsed.error }, 400);
-
-      await saveVisitEarnings(env, String(auth.user.id), {
-        type: "visit_earnings",
-        appointmentId,
-        petName: appointment.name,
-        serviceDate: appointment.appointment_date,
-        lines: []
-      }, servicesText);
-
-      const finished = await env.DB.prepare(`
-        SELECT status, actual_duration_minutes
-        FROM appointments
-        WHERE id = ?
-      `).bind(appointmentId).first();
-
-      if (finished?.status !== "completed") {
-        return webApiResponse({ error: "Не удалось завершить визит. Проверь последнее сообщение бота." }, 500);
-      }
-
-      return webApiResponse({ ok: true, appointmentId, actualDurationMinutes: finished.actual_duration_minutes });
+      const result = await finishWebVisitWithoutBot(env, appointmentId, date, servicesText);
+      if (result.error) return webApiResponse({ error: result.error }, result.status || 400);
+      return webApiResponse({ ok: true, appointmentId, actualDurationMinutes: result.actualDurationMinutes });
     }
 
     if (request.method === "POST" && path === "/api/day-off") {
-      await markTodayAsDayOff(env, String(auth.user.id));
+      await env.DB.prepare(`
+        INSERT INTO assistant_settings (setting_key, setting_value, updated_at)
+        VALUES (?, '1', CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = '1', updated_at = CURRENT_TIMESTAMP
+      `).bind("day_off_" + date).run();
       return webApiResponse({ ok: true, dayOff: true, date, dateDisplay: todayDisplay });
     }
 
@@ -5720,6 +5720,7 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    if (!env.BOT_TOKEN) return;
     try {
       await initializeDatabase(env);
       ctx.waitUntil(processScheduledReminders(env));
