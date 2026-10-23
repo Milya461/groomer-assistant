@@ -577,6 +577,7 @@ function shouldShowWebGroomingCard(pet) {
     "такса", "dachshund", "тойтерьер", "русскийтой", "toyterrier",
     "фокстерьер", "foxterrier", "басенджи", "basenji",
     "баварскаягончая", "bavarianmountainhound", "bayerischgebirgsschweisshund",
+    "американскийкокер", "americancockerspaniel", "americancock",
     "спаниель", "spaniel", "птибрабансон", "petitbrabancon", "brabancon"
   ];
   return !excludedBreeds.some(name => breed.includes(name));
