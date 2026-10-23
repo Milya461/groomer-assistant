@@ -504,9 +504,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   }
   function visitDetailsHtml(item) {
     const raw = String(item.procedures || "").trim();
-    const entries = raw ? raw.split(/;\\s*|\\n+/).map(function(value){ return value.trim(); }).filter(Boolean) : [];
+    const entries = raw ? raw.split(/;\s*|\n+/).map(function(value){ return value.trim(); }).filter(Boolean) : [];
     const parsed = entries.map(function(entry) {
-      const match = entry.match(/^(.+?):\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:₽|руб(?:лей|ля)?\\.?)?$/i);
+      const match = entry.match(/^(.+?):\s*(\d+(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:лей|ля)?\.?)?$/i);
       return {
         label: match ? match[1].trim() : entry,
         amount: match ? Number(match[2].replace(",", ".")) : null
