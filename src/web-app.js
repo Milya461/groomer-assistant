@@ -210,6 +210,39 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .calendar-editor-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
 .calendar-editor-actions .btn{margin-top:0}
 .calendar-helper{margin-top:12px;font-size:11px;line-height:1.5;color:var(--muted)}
+.calendar-day.is-weekend:not(.is-working) .calendar-day-number{color:#898989}
+.calendar-day.is-weekend:not(.is-working){background:#fafafa}
+.calendar-day.is-today{box-shadow:inset 0 0 0 1px #777}
+.calendar-day.is-today::after{content:"сегодня";position:absolute;bottom:4px;left:0;right:0;font-size:7px;letter-spacing:.01em;color:#555}
+.calendar-day.is-today .calendar-day-number{border:1px solid #111;border-radius:50%;width:25px;height:25px;display:grid;place-items:center}
+.calendar-day.is-working .calendar-day-number{background:#111;color:#fff;border-radius:50%;width:25px;height:25px;display:grid;place-items:center}
+.calendar-day.is-working .calendar-day-dot{background:#111}
+.calendar-day.is-working.is-selected .calendar-day-number{background:#fff;color:#111}
+.calendar-day-dot{width:6px;height:6px;border-radius:50%;background:#111;display:block}
+.calendar-appointment-count{font-size:8px;font-weight:750;color:#555;line-height:1}
+.calendar-day.is-selected{outline:2px solid #111;outline-offset:1px}
+.calendar-legend{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 4px;color:#666;font-size:10px}
+.calendar-legend-item{display:inline-flex;align-items:center;gap:6px}
+.calendar-legend-mark{display:inline-block;width:10px;height:10px;border:1px solid #ccc;border-radius:3px;background:#fff}
+.calendar-legend-mark.working{background:#111;border-color:#111}
+.calendar-legend-mark.today{border:2px solid #777;border-radius:50%}
+.calendar-day-appointments{margin:20px 0 25px;padding-top:16px;border-top:1px solid var(--line)}
+.appointment-card{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:11px;padding:13px 0;border-bottom:1px solid var(--line)}
+.appointment-card-time{font-size:13px;font-weight:780;font-variant-numeric:tabular-nums}
+.appointment-card-name{font-size:12px;font-weight:750;overflow-wrap:anywhere}
+.appointment-card-meta{font-size:10px;line-height:1.45;color:var(--muted);margin-top:4px}
+.appointment-card .inlineaction{margin-top:0;white-space:nowrap}
+.appointment-form{padding:18px;border:1px solid var(--line);border-radius:14px;margin:17px 0 24px;background:#fff}
+.appointment-form h2{font-size:17px;margin:7px 0}
+.appointment-form .field{display:block;margin:13px 0}
+.appointment-form .field span{display:block;font-size:10px;color:var(--muted);margin-bottom:6px}
+.appointment-form .field input,.appointment-form .field select{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;color:#111;font:inherit;font-size:13px}
+.appointment-form-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.appointment-form-actions .btn{margin-top:0}
+.appointment-form-error{display:none;margin:10px 0 0;padding:10px 12px;border:1px solid #d9d9d9;border-radius:9px;color:#222;font-size:11px;line-height:1.5}
+.inlineaction.primary-action{border-color:#111;background:#111;color:#fff;padding:9px 12px;font-size:11px}
+.calendar-time-help{margin-top:10px;padding:11px 12px;border-radius:10px;background:#f7f7f7;font-size:10px;line-height:1.5;color:#555}
+.history-photo-label{margin-top:12px}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -408,11 +441,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const petLabel = item.name + (item.breed ? " · " + item.breed : "");
     let action = "";
     if (item.status === "scheduled" || item.status === "waiting") {
-      action = '<button class="inlineaction" data-start-visit="' + Number(item.id) + '">Начать визит</button>';
+      action = '<button class="inlineaction primary-action" data-start-visit="' + Number(item.id) + '">▶ Начать визит</button>';
     } else if (item.status === "in_progress") {
-      action = '<button class="inlineaction" data-finish-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить</button>';
+      action = '<button class="inlineaction primary-action" data-finish-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
     }
-    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody"><div class="itemtitle">' + esc(petLabel) + '</div><div class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</div>' + action + '</div><span class="status">' + esc(statusText(item.status)) + '</span></div>';
+    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody"><div class="itemtitle">' + esc(petLabel) + '</div><div class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</div>' + action + '</div></div>';
   }
   function formatDuration(value) {
     const n = Math.max(0,Number(value || 0));
@@ -439,10 +472,14 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
-      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div></div><span class="count">' + rows.length + ' ЗАПИСЕЙ</span></div>' +
+      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div><div class="count" style="margin-top:5px">' + rows.length + ' ЗАПИСЕЙ</div></div><button type="button" class="btn" id="add-appointment">＋ Добавить запись</button></div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
-      '<div id="visit-action-panel"></div>';
+      '<div id="visit-action-panel"></div><div id="appointment-editor-slot"></div>';
 
+
+    document.getElementById("add-appointment").addEventListener("click",function() {
+      openAppointmentEditor(null, moscowISODate()).catch(showError);
+    });
 
     content.querySelectorAll("[data-start-visit]").forEach(function(button) {
       button.addEventListener("click", async function() {
@@ -495,6 +532,81 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     });
   }
+  async function openAppointmentEditor(appointment, defaultDate, selectedShift) {
+    const slot = document.getElementById("appointment-editor-slot");
+    if (!slot) return;
+    slot.innerHTML = '<div class="loading">Загружаю питомцев…</div>';
+    const petsData = await api("/api/pets");
+    const pets = petsData.pets || [];
+    if (!pets.length) {
+      slot.innerHTML = '<div class="notice">Сначала добавь питомца в разделе «Питомцы», затем можно будет создать запись.</div>';
+      return;
+    }
+    const editing = !!appointment;
+    const dateValue = appointment
+      ? appointment.appointment_date
+      : defaultDate || (currentScreen === "calendar" ? calendarSelectedDate : moscowISODate());
+    const timeValue = appointment
+      ? appointment.appointment_time
+      : selectedShift ? selectedShift.start_time : "10:00";
+    slot.innerHTML =
+      '<section class="appointment-form">' +
+        '<div class="eyebrow">' + (editing ? 'РЕДАКТИРОВАНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ') + '</div>' +
+        '<h2>' + (editing ? 'Изменить запись' : 'Добавить запись') + '</h2>' +
+        '<div class="smallmuted">Выбери питомца, рабочую дату и свободное время. Запись можно будет изменить позже.</div>' +
+        '<form id="appointment-edit-form">' +
+          '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
+            pets.map(function(pet) {
+              const selected = Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
+              return '<option value="' + Number(pet.id) + '"' + selected + '>' + esc(pet.name) + (pet.breed ? ' · ' + esc(pet.breed) : '') + '</option>';
+            }).join("") +
+          '</select></label>' +
+          '<label class="field"><span>ДАТА</span><input name="date" type="date" min="' + moscowISODate() + '" value="' + esc(dateValue) + '" required></label>' +
+          '<label class="field"><span>ВРЕМЯ</span><input name="time" type="time" value="' + esc(timeValue) + '" required></label>' +
+          '<div class="calendar-time-help">Записи создаются только на даты, отмеченные рабочими в календаре, и в пределах времени смены. Одно время нельзя занять двумя записями.</div>' +
+          '<div class="appointment-form-error" id="appointment-form-error"></div>' +
+          '<div class="appointment-form-actions" style="margin-top:14px">' +
+            '<button type="submit" class="btn" id="appointment-form-save">' + (editing ? 'Сохранить изменения' : 'Добавить запись') + '</button>' +
+            '<button type="button" class="btn secondary" id="appointment-form-cancel">Отмена</button>' +
+          '</div>' +
+        '</form>' +
+      '</section>';
+    document.getElementById("appointment-form-cancel").addEventListener("click",function(){slot.innerHTML="";});
+    document.getElementById("appointment-edit-form").addEventListener("submit",async function(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const body = {
+        dogId:Number(form.elements.dogId.value),
+        date:form.elements.date.value,
+        time:form.elements.time.value
+      };
+      const saveButton = document.getElementById("appointment-form-save");
+      const errorBox = document.getElementById("appointment-form-error");
+      saveButton.disabled = true;
+      saveButton.textContent = "Сохраняю…";
+      errorBox.style.display = "none";
+      try {
+        await api(editing ? "/api/appointments/" + Number(appointment.id) : "/api/appointments", {
+          method:editing ? "PUT" : "POST",
+          body:JSON.stringify(body)
+        });
+        if (currentScreen === "calendar") {
+          calendarSelectedDate = body.date;
+          calendarMonth = body.date.slice(0,7);
+          await renderCalendar();
+        } else {
+          await renderToday();
+        }
+      } catch(error) {
+        errorBox.textContent = error.message || "Не удалось сохранить запись.";
+        errorBox.style.display = "block";
+        saveButton.disabled = false;
+        saveButton.textContent = editing ? "Сохранить изменения" : "Добавить запись";
+      }
+    });
+    slot.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
   function moscowISODate(date) {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone:"Europe/Moscow", year:"numeric", month:"2-digit", day:"2-digit"
