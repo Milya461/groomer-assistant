@@ -4422,7 +4422,7 @@ async function handleWebApi(request, env) {
 
     if (request.method === "GET" && path === "/api/work-shifts") {
       const targetMonth = String(url.searchParams.get("month") || month);
-      if (!/^\\d{4}-\\d{2}$/.test(targetMonth)) {
+      if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
         return webApiResponse({ error: "Укажи месяц в формате ГГГГ-ММ." }, 400);
       }
       const monthNumber = Number(targetMonth.slice(5, 7));
@@ -4491,7 +4491,7 @@ async function handleWebApi(request, env) {
       const shiftDate = String(body.date || "");
       const startTime = String(body.startTime || "");
       const endTime = String(body.endTime || "");
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) {
         return webApiResponse({ error: "Укажи дату рабочего дня." }, 400);
       }
       const dateParts = shiftDate.split("-").map(Number);
@@ -4503,7 +4503,7 @@ async function handleWebApi(request, env) {
       ) {
         return webApiResponse({ error: "Такой даты не существует." }, 400);
       }
-      const validTime = value => /^([01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+      const validTime = value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
       if (!validTime(startTime) || !validTime(endTime) || startTime >= endTime) {
         return webApiResponse({ error: "Проверь время начала и окончания смены." }, 400);
       }
