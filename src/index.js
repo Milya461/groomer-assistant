@@ -4630,12 +4630,17 @@ async function handleWebApi(request, env) {
         SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
                a.status, a.procedures, a.actual_start_time, a.actual_end_time,
                a.actual_duration_minutes, a.planned_duration_minutes,
-               d.name, d.breed, d.species
+               d.name, d.breed, d.species,
+               COALESCE((
+                 SELECT SUM(e.earned)
+                 FROM earnings_entries e
+                 WHERE e.appointment_id = a.id
+               ), 0) AS earned
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
-        WHERE a.status IN ('completed', 'in_progress')
+        WHERE a.status IN ('completed', 'in_progress', 'scheduled', 'waiting')
         ORDER BY a.appointment_date DESC,
-                 COALESCE(a.actual_end_time, a.appointment_time, '') DESC,
+                 COALESCE(a.actual_end_time, a.actual_start_time, a.appointment_time, '') DESC,
                  a.id DESC
         LIMIT 100
       `).all();
