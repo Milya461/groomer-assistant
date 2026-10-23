@@ -5063,7 +5063,7 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true });
     }
 
-    const afterVisitPhotosMatch = path.match(/^\\/api\\/appointments\\/(\\d+)\\/after-photos$/);
+    const afterVisitPhotosMatch = path.match(/^\/api\/appointments\/(\d+)\/after-photos$/);
     if (request.method === "POST" && afterVisitPhotosMatch) {
       const appointmentId = Number(afterVisitPhotosMatch[1]);
       const appointment = await env.DB.prepare(\`
