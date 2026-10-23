@@ -270,6 +270,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 }
 #add-appointment{white-space:nowrap}
 @media(max-width:660px){#add-appointment{padding:10px 9px;font-size:10px}}
+.calendar-legend-mark.selected{outline:2px solid #111;outline-offset:1px}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
