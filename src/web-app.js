@@ -498,7 +498,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     return ({scheduled:"Запланирован",waiting:"Ожидаем",in_progress:"В работе",completed:"Завершён",cancelled:"Отменён",rescheduled:"Перенесён",skipped:"Пропущен"})[status] || status || "—";
   }
   function rowForVisit(item) {
-    const petLabel = item.name + (item.breed ? " · " + item.breed : "");
+    const petBreedLabel = [item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ");
+    const petLabel = item.name + (petBreedLabel ? " · " + petBreedLabel : "");
     const id = Number(item.id);
     let action = "";
     if (item.status === "scheduled" || item.status === "waiting") {
