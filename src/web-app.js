@@ -147,6 +147,36 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-time{text-align:right;font-size:12px;font-weight:760;white-space:nowrap}
 .history-procedures{font-size:11px;line-height:1.55;color:#555;margin-top:12px;padding-top:10px;border-top:1px solid #eee;white-space:pre-wrap}
 .action-form{padding:18px;border:1px solid var(--line);border-radius:13px;margin:17px 0}
+.service-picker{padding:16px;border:1px solid var(--line);border-radius:14px;margin:17px 0;background:#fff}
+.service-picker-heading{font-size:12px;font-weight:800;margin:17px 0 9px}
+.service-choice-list{display:grid;gap:8px}
+.service-choice{display:grid;grid-template-columns:23px minmax(0,1fr);gap:10px;padding:12px;border:1px solid var(--line);border-radius:11px;min-width:0}
+.service-choice:has(input:checked){border-color:#111;background:#fafafa}
+.service-choice>input[type=checkbox],.service-choice>input[type=radio]{width:18px;height:18px;margin:2px 0 0;accent-color:#111}
+.service-choice-body{min-width:0}
+.service-choice-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.service-choice-name{font-size:12px;font-weight:780;line-height:1.35}
+.service-choice-price-label{font-size:11px;font-weight:750;white-space:nowrap}
+.service-choice-note{font-size:10px;line-height:1.45;color:var(--muted);margin-top:5px}
+.service-choice-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(105px,.58fr);gap:8px;margin-top:10px}
+.service-choice-controls.single{grid-template-columns:minmax(0,1fr)}
+.service-choice-controls label{display:block;min-width:0}
+.service-choice-controls label span{display:block;font-size:9px;color:var(--muted);margin-bottom:5px}
+.service-choice-controls select,.service-choice-controls input{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:9px;background:#fff;color:#111;font:inherit;font-size:12px}
+.service-total-box{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,.55fr);gap:10px;align-items:center;padding:13px 0;border-top:1px solid var(--line);margin-top:14px}
+.service-total-label{font-size:12px;font-weight:780}
+.service-total-help{font-size:10px;color:var(--muted);line-height:1.45;margin-top:4px}
+.service-total-box input{width:100%;min-width:0;border:1px solid var(--line);border-radius:9px;padding:11px;background:#fff;color:#111;font:inherit;font-size:15px;font-weight:780}
+.service-commission-preview{font-size:11px;line-height:1.5;color:#555;margin-top:7px}
+.service-confirm-box{padding:14px;border:1px solid #111;border-radius:11px;margin-top:14px}
+.service-confirm-box[hidden]{display:none}
+.service-confirm-title{font-size:13px;font-weight:800;margin-bottom:8px}
+.service-confirm-line{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:11px;line-height:1.4}
+.service-confirm-line strong{white-space:nowrap}
+.service-confirm-total{display:flex;justify-content:space-between;gap:12px;margin-top:12px;font-size:14px;font-weight:800}
+.service-confirm-earned{font-size:11px;color:#555;margin-top:6px}
+.breed-variant-field{display:none}
+.breed-variant-help{font-size:10px;line-height:1.45;color:var(--muted);margin-top:6px}
 footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#a0a0a0;font-size:9px;letter-spacing:.12em;display:flex;justify-content:space-between}
 .auth-card{max-width:460px;margin:0 auto;padding:26px}
 .auth-logo{display:grid;place-items:center;width:46px;height:46px;margin-bottom:26px;border-radius:14px;background:#111;color:#fff;font-size:14px;font-weight:800;letter-spacing:-.07em}
@@ -972,7 +1002,14 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       if (type === "textarea") {
         return '<label class="field"><span>' + esc(label) + '</span><textarea class="formtextarea" name="' + key + '" rows="2">' + esc(pet[key] || "") + '</textarea></label>';
       }
-      return '<label class="field"><span>' + esc(label) + '</span><input name="' + key + '" value="' + esc(pet[key] || "") + '" ' + (key === "name" ? 'required maxlength="100"' : "") + '></label>';
+      const fieldMarkup = '<label class="field"><span>' + esc(label) + '</span><input name="' + key + '" value="' + esc(pet[key] || "") + '" ' + (key === "name" ? 'required maxlength="100"' : "") + '></label>';
+      if (key !== "breed") return fieldMarkup;
+      return fieldMarkup +
+        '<label class="field breed-variant-field" id="breed-variant-field">' +
+          '<span id="breed-variant-label">Размер / разновидность по прайсу</span>' +
+          '<select name="breed_variant" id="pet-breed-variant"></select>' +
+          '<div class="breed-variant-help">Выбирается один раз и сохраняется в карточке питомца.</div>' +
+        '</label>';
     }).join("");
     return '<form class="petform" id="pet-card-form">' + fieldsHtml +
       '<button class="btn full" type="submit" id="pet-card-save">Сохранить карточку</button>' +
@@ -982,25 +1019,87 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
   function bindPetCardForm(slot, pet, petId) {
     slot.innerHTML = petCardFormHtml(pet || {});
+    const form = document.getElementById("pet-card-form");
+    const breedInput = form.elements.breed;
+    const speciesInput = form.elements.species;
+    const variantField = document.getElementById("breed-variant-field");
+    const variantSelect = document.getElementById("pet-breed-variant");
+    const variantLabel = document.getElementById("breed-variant-label");
+    let previousBreed = String((pet && pet.breed) || "");
+    let previousGroupId = "";
+    let variantRequest = 0;
+
+    async function syncBreedVariant(preserveCurrent) {
+      const requestId = ++variantRequest;
+      const currentBreed = String(breedInput.value || "").trim();
+      const species = speciesInput.value || "dog";
+      const data = await api("/api/breed-variants?breed=" + encodeURIComponent(currentBreed) + "&species=" + encodeURIComponent(species));
+      if (requestId !== variantRequest) return;
+      if (!data.requiresVariant) {
+        variantField.style.display = "none";
+        variantSelect.innerHTML = "";
+        variantSelect.value = "";
+        previousBreed = currentBreed;
+        previousGroupId = "";
+        return;
+      }
+      const currentValue = String(variantSelect.value || "");
+      const previousCardValue = currentBreed === String((pet && pet.breed) || "")
+        ? String((pet && pet.breed_variant) || data.value || "")
+        : "";
+      const canKeep = !!preserveCurrent && (
+        currentBreed === previousBreed ||
+        (!!previousGroupId && previousGroupId === data.groupId)
+      );
+      const candidate = canKeep ? (currentValue || previousCardValue) : String(data.value || "");
+      variantField.style.display = "block";
+      variantLabel.textContent = data.label || "Размер / разновидность по прайсу";
+      variantSelect.innerHTML = '<option value="">Выбери один раз</option>' +
+        (data.options || []).map(function(option) {
+          return '<option value="' + esc(option.value) + '">' + esc(option.label) + '</option>';
+        }).join("");
+      variantSelect.value = (data.options || []).some(function(option){return option.value === candidate;})
+        ? candidate
+        : String(data.value || "");
+      previousBreed = currentBreed;
+      previousGroupId = data.groupId || "";
+    }
+
     document.getElementById("pet-card-cancel").addEventListener("click",function(){slot.innerHTML="";});
-    document.getElementById("pet-card-form").addEventListener("submit",async function(event) {
+    breedInput.addEventListener("change",function(){syncBreedVariant(false).catch(showError);});
+    speciesInput.addEventListener("change",function(){syncBreedVariant(false).catch(showError);});
+    syncBreedVariant(true).catch(showError);
+
+    form.addEventListener("submit",async function(event) {
       event.preventDefault();
-      const form = event.currentTarget;
-      const body = {};
-      PET_CARD_FIELDS.forEach(function(field) {
-        body[field[0]] = form.elements[field[0]].value;
-      });
       const saveButton = document.getElementById("pet-card-save");
       saveButton.disabled = true;
       saveButton.textContent = "Сохраняю…";
       try {
+        await syncBreedVariant(true);
+        const body = {};
+        PET_CARD_FIELDS.forEach(function(field) {
+          body[field[0]] = form.elements[field[0]].value;
+        });
+        body.breed_variant = variantField.style.display === "none" ? "" : variantSelect.value;
+        if (variantField.style.display !== "none" && !body.breed_variant) {
+          throw new Error("Выбери размер или разновидность питомца один раз — это нужно для правильного прайса.");
+        }
         const result = await api(petId ? "/api/pets/" + petId : "/api/pets", {
           method: "POST",
           body: JSON.stringify(body)
         });
         await renderPet(Number(petId || result.id));
       } catch(error) {
-        showError(error);
+        saveButton.disabled = false;
+        saveButton.textContent = "Сохранить карточку";
+        const oldError = form.querySelector(".pet-variant-error");
+        if (oldError) oldError.remove();
+        const errorBox = document.createElement("div");
+        errorBox.className = "appointment-form-error pet-variant-error";
+        errorBox.textContent = error.message || "Не удалось сохранить карточку.";
+        errorBox.style.display = "block";
+        form.appendChild(errorBox);
       }
     });
     slot.scrollIntoView({behavior:"smooth",block:"start"});
@@ -1032,7 +1131,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const pets = data.pets || [];
         if (count) count.textContent = pets.length + (pets.length === 100 ? "+" : "") + (pets.length === 1 ? " питомец" : pets.length > 1 && pets.length < 5 ? " питомца" : " питомцев");
         host.innerHTML = pets.length ? pets.map(function(pet) {
-          const description = [pet.species === "cat" ? "Кошка" : "Собака", pet.breed].filter(Boolean).join(" · ");
+          const shownBreedVariant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : "";
+          const breedDescription = [pet.breed, shownBreedVariant].filter(Boolean).join(" · ");
+          const description = [pet.species === "cat" ? "Кошка" : "Собака", breedDescription].filter(Boolean).join(" · ");
           const initials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
           const cover = pet.cover_photo_id
             ? '<div class="pet-cover-placeholder" data-photo-fallback>' + esc(initials) + '</div><img alt="Фото питомца" loading="lazy" style="display:none" data-cover-photo-id="' + Number(pet.cover_photo_id) + '">'
