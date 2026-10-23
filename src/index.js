@@ -4420,6 +4420,33 @@ async function handleWebApi(request, env) {
     const month = date.slice(0, 7);
     const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
 
+    if (request.method === "GET" && path === "/api/work-shifts") {
+      const targetMonth = String(url.searchParams.get("month") || month);
+      if (!/^\\d{4}-\\d{2}$/.test(targetMonth)) {
+        return webApiResponse({ error: "Укажи месяц в формате ГГГГ-ММ." }, 400);
+      }
+      const monthNumber = Number(targetMonth.slice(5, 7));
+      if (monthNumber < 1 || monthNumber > 12) {
+        return webApiResponse({ error: "Такого месяца не существует." }, 400);
+      }
+      const nextMonthDate = new Date(Date.UTC(
+        Number(targetMonth.slice(0, 4)),
+        monthNumber,
+        1
+      ));
+      const nextMonth = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}-01`;
+      const result = await env.DB.prepare(`
+        SELECT shift_date, start_time, end_time
+        FROM assistant_work_shifts
+        WHERE shift_date >= ? AND shift_date < ?
+        ORDER BY shift_date
+      `).bind(targetMonth + "-01", nextMonth).all();
+      return webApiResponse({
+        month: targetMonth,
+        shifts: result.results || []
+      });
+    }
+
     if (request.method === "GET" && path === "/api/dashboard") {
       const queueResult = await env.DB.prepare(`
         SELECT a.id, a.appointment_time, a.status, a.queue_position,
@@ -4452,6 +4479,59 @@ async function handleWebApi(request, env) {
         },
         queue
       });
+    }
+
+    if (request.method === "POST" && path === "/api/work-shifts") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать рабочий день." }, 400);
+      }
+      const shiftDate = String(body.date || "");
+      const startTime = String(body.startTime || "");
+      const endTime = String(body.endTime || "");
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)) {
+        return webApiResponse({ error: "Укажи дату рабочего дня." }, 400);
+      }
+      const dateParts = shiftDate.split("-").map(Number);
+      const checkedDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+      if (
+        checkedDate.getUTCFullYear() !== dateParts[0] ||
+        checkedDate.getUTCMonth() !== dateParts[1] - 1 ||
+        checkedDate.getUTCDate() !== dateParts[2]
+      ) {
+        return webApiResponse({ error: "Такой даты не существует." }, 400);
+      }
+      const validTime = value => /^([01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+      if (!validTime(startTime) || !validTime(endTime) || startTime >= endTime) {
+        return webApiResponse({ error: "Проверь время начала и окончания смены." }, 400);
+      }
+      await env.DB.prepare(`
+        INSERT INTO assistant_work_shifts (
+          shift_date, start_time, end_time, reminders_sent, updated_at
+        ) VALUES (?, ?, ?, '[]', CURRENT_TIMESTAMP)
+        ON CONFLICT(shift_date) DO UPDATE SET
+          start_time = excluded.start_time,
+          end_time = excluded.end_time,
+          reminders_sent = '[]',
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(shiftDate, startTime, endTime).run();
+      return webApiResponse({ ok: true, date: shiftDate, startTime, endTime });
+    }
+
+    if (request.method === "DELETE" && path === "/api/work-shifts") {
+      const shiftDate = String(url.searchParams.get("date") || "");
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)) {
+        return webApiResponse({ error: "Укажи дату рабочего дня." }, 400);
+      }
+      const result = await env.DB.prepare(`
+        DELETE FROM assistant_work_shifts WHERE shift_date = ?
+      `).bind(shiftDate).run();
+      if (!result.meta?.changes) {
+        return webApiResponse({ error: "Рабочий день не найден." }, 404);
+      }
+      return webApiResponse({ ok: true, date: shiftDate });
     }
 
     if (request.method === "GET" && path === "/api/pets") {
