@@ -129,8 +129,9 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
   function setHead(name, sub) {
     title.textContent = name;
     subtitle.textContent = sub || "";
+    const activeScreen = currentScreen === "pet-detail" ? "pets" : currentScreen;
     document.querySelectorAll(".tab").forEach(function(tab){
-      tab.classList.toggle("active", tab.dataset.screen === currentScreen);
+      tab.classList.toggle("active", tab.dataset.screen === activeScreen);
     });
   }
   async function api(path, options) {
@@ -194,23 +195,13 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
   async function renderPets() {
     currentScreen = "pets";
     setHead("Питомцы","Карточки собак и кошек");
-    content.innerHTML = '<div class="searchbar"><input id="pet-search" placeholder="Поиск по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div><div class="loading">Загружаю карточки…</div>';
-    const input = document.getElementById("pet-search");
-    const button = document.getElementById("pet-search-btn");
-    async function search() {
-      petQuery = input.value.trim();
-      const data = await api("/api/pets?q=" + encodeURIComponent(petQuery));
-      const pets = data.pets || [];
-      const listHtml = pets.map(function(pet){
-        const description = [pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ");
-        return '<div class="petrow" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '"><div><div class="petname">' + esc(pet.name) + '</div><div class="petbreed">' + esc(description) + '</div></div><div class="arrow">›</div></div>';
-      }).join("");
-      const host = document.getElementById("pet-list");
-      if (host) host.innerHTML = pets.length ? listHtml : '<div class="empty">Ничего не найдено</div>';
-    }
-    content.innerHTML = '<div class="searchbar"><input id="pet-search" placeholder="Поиск по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div><div id="pet-list" class="list"><div class="loading">Загружаю карточки…</div></div>';
+    content.innerHTML =
+      '<div class="searchbar"><input id="pet-search" placeholder="Поиск по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
+      '<div id="pet-list" class="list"><div class="loading">Загружаю карточки…</div></div>';
+
     const searchInput = document.getElementById("pet-search");
     const searchButton = document.getElementById("pet-search-btn");
+
     async function runSearch() {
       petQuery = searchInput.value.trim();
       const host = document.getElementById("pet-list");
@@ -218,22 +209,37 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
       try {
         const data = await api("/api/pets?q=" + encodeURIComponent(petQuery));
         const pets = data.pets || [];
-        host.innerHTML = pets.length ? pets.map(function(pet){
-          const description = [pet.species === "cat" ? "Кошка" : "Собака",pet.breed].filter(Boolean).join(" · ");
-          return '<div class="petrow" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '"><div><div class="petname">' + esc(pet.name) + '</div><div class="petbreed">' + esc(description) + '</div></div><div class="arrow">›</div></div>';
+        host.innerHTML = pets.length ? pets.map(function(pet) {
+          const description = [
+            pet.species === "cat" ? "Кошка" : "Собака",
+            pet.breed
+          ].filter(Boolean).join(" · ");
+          return '<div class="petrow" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '">' +
+            '<div><div class="petname">' + esc(pet.name) + '</div>' +
+            '<div class="petbreed">' + esc(description) + '</div></div>' +
+            '<div class="arrow">›</div></div>';
         }).join("") : '<div class="empty">Ничего не найдено</div>';
-      } catch(error){ showError(error); }
+      } catch(error) {
+        showError(error);
+      }
     }
-    searchButton.addEventListener("click",runSearch);
-    searchInput.addEventListener("keydown",function(e){if(e.key==="Enter")runSearch();});
-    content.addEventListener("click",function(e){
-      const row = e.target.closest("[data-pet-id]");
-      if(row) renderPet(Number(row.dataset.petId)).catch(showError);
+
+    searchButton.addEventListener("click", runSearch);
+    searchInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") runSearch();
     });
-    content.addEventListener("keydown",function(e){
+
+    content.onclick = function(e) {
       const row = e.target.closest("[data-pet-id]");
-      if(row && (e.key==="Enter" || e.key===" ")) renderPet(Number(row.dataset.petId)).catch(showError);
-    });
+      if (row) renderPet(Number(row.dataset.petId)).catch(showError);
+    };
+    content.onkeydown = function(e) {
+      const row = e.target.closest("[data-pet-id]");
+      if (row && (e.key === "Enter" || e.key === " ")) {
+        renderPet(Number(row.dataset.petId)).catch(showError);
+      }
+    };
+
     await runSearch();
   }
   function detailRow(label,value) {
@@ -269,7 +275,8 @@ button:focus-visible{outline:2px solid #111;outline-offset:2px}
         detailRow("Ножи",card.blades) +
         detailRow("Пожелания владельца",card.owner_preferences) +
         detailRow("К следующему визиту",card.next_visit_changes) +
-        '<div class="smallmuted" style="margin-top:8px">Фото и редактирование карты пока доступны в Telegram-боте.</div></section>' : '') +
+        detailRow("Фото к карте",Number(data.groomingPhotoCount || 0) + " шт.") +
+        '<div class="smallmuted" style="margin-top:8px">Редактирование карты и добавление фото пока доступны в Telegram-боте.</div></section>' : '') +
       '<button class="btn secondary full" id="back-pets-bottom">Вернуться к питомцам</button>';
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
     document.getElementById("back-pets-bottom").addEventListener("click",function(){renderPets().catch(showError);});
