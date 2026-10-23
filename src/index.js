@@ -4360,7 +4360,14 @@ async function handleWebApi(request, env) {
       const query = String(url.searchParams.get("q") || "").trim().slice(0, 100);
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
-        SELECT id, name, species, breed, notes, warnings
+        SELECT id, name, species, breed, notes, warnings,
+               (
+                 SELECT gcp.id
+                 FROM grooming_card_photos gcp
+                 WHERE gcp.dog_id = dogs.id
+                 ORDER BY gcp.id DESC
+                 LIMIT 1
+               ) AS cover_photo_id
         FROM dogs
         WHERE COALESCE(is_temporary, 0) = 0
           AND (? = '' OR name LIKE ? COLLATE NOCASE OR COALESCE(breed, '') LIKE ? COLLATE NOCASE)
@@ -4551,6 +4558,24 @@ async function handleWebApi(request, env) {
 
       await saveGroomingCard(env, petId, card);
       return webApiResponse({ ok: true });
+    }
+
+    if (request.method === "GET" && path === "/api/visits") {
+      const result = await env.DB.prepare(`
+        SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
+               a.status, a.procedures, a.actual_start_time, a.actual_end_time,
+               a.actual_duration_minutes, a.planned_duration_minutes,
+               d.name, d.breed, d.species
+        FROM appointments a
+        JOIN dogs d ON d.id = a.dog_id
+        WHERE a.status IN ('completed', 'in_progress')
+        ORDER BY a.appointment_date DESC,
+                 COALESCE(a.actual_end_time, a.appointment_time, '') DESC,
+                 a.id DESC
+        LIMIT 100
+      `).all();
+
+      return webApiResponse({ visits: result.results || [] });
     }
 
     const petMatch = path.match(/^\/api\/pets\/(\d+)$/);
@@ -4774,14 +4799,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (request.method === "GET" && url.pathname === "/") {
+    if (request.method === "GET" && url.pathname === "/health") {
       return new Response("Groomer Assistant is running.", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/app") {
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/app")) {
       return new Response(WEB_APP_HTML, {
         status: 200,
         headers: {
