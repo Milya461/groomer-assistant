@@ -618,6 +618,258 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         : '') +
     '</div>';
   }
+  async function openVisitFinishForm(appointmentId, dogId, petName, panel, afterSave) {
+    if (!panel) return;
+    panel.innerHTML = '<div class="loading">Загружаю услуги и цены по прайсу…</div>';
+    try {
+      const catalog = await api("/api/service-options?dogId=" + Number(dogId));
+      if (catalog.requiresVariant) {
+        panel.innerHTML =
+          '<section class="service-picker">' +
+            '<div class="eyebrow">УТОЧНЕНИЕ КАРТОЧКИ</div>' +
+            '<h2 style="margin:8px 0">Укажи ' + esc(catalog.variantLabel || "размер / разновидность") + '</h2>' +
+            '<p class="smallmuted">Это выбирается один раз в карточке питомца. После сохранения приложение будет подбирать правильный прайс автоматически.</p>' +
+            '<button class="btn full" type="button" id="finish-edit-pet">Открыть карточку питомца</button>' +
+          '</section>';
+        panel.querySelector("#finish-edit-pet").addEventListener("click",function(){renderPet(Number(dogId)).catch(showError);});
+        return;
+      }
+
+      const baseServices = catalog.baseServices || [];
+      const addOns = catalog.additionalServices || [];
+      const allServices = baseServices.concat(addOns);
+      function priceLabel(service) {
+        if (service.priceRange && Number(service.priceRange.max) >= Number(service.priceRange.min)) {
+          return money(service.priceRange.min) + "–" + money(service.priceRange.max);
+        }
+        return money(service.price);
+      }
+      function renderChoice(service, isBase) {
+        const id = String(service.id);
+        const choiceInput = '<input type="' + (isBase ? "radio" : "checkbox") + '" ' +
+          (isBase ? 'name="finish-base-service" data-finish-base="' + esc(id) + '"' : 'data-finish-addon="' + esc(id) + '"') +
+          ' value="' + esc(id) + '">';
+        const sizeChoices = service.sizeChoices || [];
+        const sizeSelector = sizeChoices.length
+          ? '<label><span>Размер услуги</span><select data-finish-size="' + esc(id) + '">' +
+              sizeChoices.map(function(choice) {
+                return '<option value="' + esc(choice.value) + '"' + (choice.value === service.defaultSize ? " selected" : "") + '>' + esc(choice.label) + ' · ' + money(choice.price) + '</option>';
+              }).join("") +
+            '</select></label>'
+          : '';
+        const inputValue = service.sizeChoices
+          ? Number((sizeChoices.find(function(choice){return choice.value === service.defaultSize;}) || sizeChoices[0]).price)
+          : Number(service.price || 0);
+        return '<div class="service-choice" data-finish-service-card="' + esc(id) + '">' +
+          choiceInput +
+          '<div class="service-choice-body">' +
+            '<div class="service-choice-top"><span class="service-choice-name">' + esc(service.label) + '</span><span class="service-choice-price-label">' + priceLabel(service) + '</span></div>' +
+            (service.note ? '<div class="service-choice-note">' + esc(service.note) + '</div>' : '') +
+            (service.minutes ? '<div class="service-choice-note">' + Number(service.minutes) + ' мин</div>' : '') +
+            '<div class="service-choice-controls ' + (sizeSelector ? '' : 'single') + '">' +
+              sizeSelector +
+              '<label><span>Цена, ₽ (можно изменить)</span><input type="number" min="0" max="100000" step="0.01" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+      panel.innerHTML =
+        '<section class="service-picker">' +
+          '<div class="eyebrow">ЗАВЕРШЕНИЕ ВИЗИТА</div>' +
+          '<h2 style="margin:8px 0 5px">' + esc(petName) + '</h2>' +
+          '<div class="smallmuted">Выбери одну основную услугу и дополнительные, если они были. Цены автоматически взяты из прайса; каждую цену и итоговую сумму можно исправить.</div>' +
+          '<div class="service-picker-heading">Основная услуга</div>' +
+          '<div class="service-choice-list">' + baseServices.map(function(service){return renderChoice(service,true);}).join("") + '</div>' +
+          '<div class="service-picker-heading">Дополнительные услуги</div>' +
+          '<div class="service-choice-list">' + addOns.map(function(service){return renderChoice(service,false);}).join("") + '</div>' +
+          '<div class="service-total-box">' +
+            '<div><div class="service-total-label">Итоговая сумма визита, ₽</div><div class="service-total-help">Сначала сумма складывается из выбранного. Её можно скорректировать вручную до подтверждения.</div></div>' +
+            '<input type="number" min="0.01" max="100000" step="0.01" value="0" data-finish-total>' +
+          '</div>' +
+          '<div class="service-commission-preview" data-finish-commission>Выбери услуги, чтобы рассчитать итог и процент.</div>' +
+          '<button type="button" class="inlineaction" data-finish-reset-total>Пересчитать сумму по выбранным услугам</button>' +
+          '<div class="appointment-form-error" data-finish-error></div>' +
+          '<button type="button" class="btn full" data-finish-review>Проверить сумму</button>' +
+          '<button type="button" class="btn secondary full" data-finish-cancel>Отмена</button>' +
+          '<div class="service-confirm-box" data-finish-confirm hidden></div>' +
+        '</section>';
+
+      const totalInput = panel.querySelector("[data-finish-total]");
+      const commissionBox = panel.querySelector("[data-finish-commission]");
+      const errorBox = panel.querySelector("[data-finish-error]");
+      const confirmBox = panel.querySelector("[data-finish-confirm]");
+      let manualTotal = false;
+      let pendingReview = false;
+
+      function getSelections() {
+        const selected = [];
+        const baseInput = panel.querySelector("[data-finish-base]:checked");
+        if (baseInput) selected.push(baseInput.dataset.finishBase);
+        panel.querySelectorAll("[data-finish-addon]:checked").forEach(function(input){selected.push(input.dataset.finishAddon);});
+        return selected.map(function(id) {
+          const service = allServices.find(function(item){return item.id === id;});
+          const priceInput = panel.querySelector('[data-finish-price="' + id + '"]');
+          const sizeInput = panel.querySelector('[data-finish-size="' + id + '"]');
+          return {
+            id,
+            label: service ? service.label : id,
+            amount: priceInput ? Number(priceInput.value) : Number(service && service.price || 0),
+            size: sizeInput ? sizeInput.value : null,
+            rate: Number(service && service.rate || 35),
+            service
+          };
+        });
+      }
+      function estimatedEarned(services, total) {
+        const selectedSum = services.reduce(function(sum, service){return sum + (Number.isFinite(service.amount) ? service.amount : 0);},0);
+        const correction = total - selectedSum;
+        const selectedEarned = services.reduce(function(sum, service) {
+          const amount = Number.isFinite(service.amount) ? service.amount : 0;
+          const rate = /когт|коготк|параанальн|чаев/i.test(service.label) ? 100 : Number(service.rate || 35);
+          return sum + Math.round(amount * rate) / 100;
+        },0);
+        return Math.round((selectedEarned + Math.round(correction * 35) / 100) * 100) / 100;
+      }
+      function renderConfirmation(services) {
+        const finalTotal = Number(totalInput.value);
+        const lines = services.map(function(service) {
+          let label = service.label;
+          if (service.size && service.service && service.service.sizeChoices) {
+            const choice = service.service.sizeChoices.find(function(option){return option.value === service.size;});
+            if (choice) label += " · " + choice.label.toLowerCase();
+          }
+          return '<div class="service-confirm-line"><span>' + esc(label) + '</span><strong>' + money(service.amount) + '</strong></div>';
+        }).join("");
+        const earned = estimatedEarned(services, finalTotal);
+        confirmBox.innerHTML =
+          '<div class="service-confirm-title">Проверь перед подтверждением</div>' +
+          lines +
+          '<div class="service-confirm-total"><span>Итоговая сумма</span><strong>' + money(finalTotal) + '</strong></div>' +
+          '<div class="service-confirm-earned">Твой заработок после подтверждения: ' + money(earned) + '</div>' +
+          '<button type="button" class="btn full" data-finish-confirm-submit>Подтвердить сумму и завершить визит</button>' +
+          '<button type="button" class="btn secondary full" data-finish-confirm-back>Назад, изменить услуги</button>';
+        confirmBox.hidden = false;
+        confirmBox.querySelector("[data-finish-confirm-back]").addEventListener("click",function() {
+          pendingReview = false;
+          confirmBox.hidden = true;
+        });
+        confirmBox.querySelector("[data-finish-confirm-submit]").addEventListener("click",async function() {
+          const button = confirmBox.querySelector("[data-finish-confirm-submit]");
+          const currentServices = getSelections();
+          const currentTotal = Number(totalInput.value);
+          if (!currentServices.some(function(service){return service.id.startsWith("groom:");})) {
+            errorBox.textContent = "Выбери одну основную услугу.";
+            errorBox.style.display = "block";
+            return;
+          }
+          if (currentServices.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
+            errorBox.textContent = "Проверь цену каждой выбранной услуги.";
+            errorBox.style.display = "block";
+            return;
+          }
+          if (!Number.isFinite(currentTotal) || currentTotal <= 0 || currentTotal > 100000) {
+            errorBox.textContent = "Укажи корректную итоговую сумму.";
+            errorBox.style.display = "block";
+            return;
+          }
+          button.disabled = true;
+          button.textContent = "Сохраняю визит…";
+          try {
+            const result = await api("/api/visits/" + Number(appointmentId) + "/finish", {
+              method:"POST",
+              body:JSON.stringify({
+                selectedServices:currentServices.map(function(service) {
+                  return {id:service.id,amount:service.amount,size:service.size};
+                }),
+                finalTotal:currentTotal
+              })
+            });
+            panel.innerHTML =
+              '<section class="service-picker">' +
+                '<div class="eyebrow">ВИЗИТ ЗАВЕРШЁН</div>' +
+                '<h2 style="margin:8px 0">Готово ✓</h2>' +
+                '<div class="service-confirm-total"><span>Итоговая сумма</span><strong>' + money(result.finalTotal) + '</strong></div>' +
+                '<div class="service-confirm-earned">Твой заработок: ' + money(result.earned) + '</div>' +
+              '</section>';
+            if (typeof afterSave === "function") await afterSave();
+          } catch(error) {
+            button.disabled = false;
+            button.textContent = "Подтвердить сумму и завершить визит";
+            errorBox.textContent = error.message || "Не удалось сохранить визит.";
+            errorBox.style.display = "block";
+          }
+        });
+      }
+      function updateTotals() {
+        const selections = getSelections();
+        const sum = Math.round(selections.reduce(function(total, service){return total + (Number.isFinite(service.amount) && service.amount >= 0 ? service.amount : 0);},0) * 100) / 100;
+        if (!manualTotal) totalInput.value = sum;
+        const total = Number(totalInput.value);
+        if (Number.isFinite(total) && total >= 0) {
+          commissionBox.textContent = selections.length
+            ? "Предварительный заработок: " + money(estimatedEarned(selections, total)) + " · процент зафиксируется после подтверждения."
+            : "Выбери услуги, чтобы рассчитать итог и процент.";
+        } else {
+          commissionBox.textContent = "Проверь итоговую сумму.";
+        }
+        if (pendingReview) renderConfirmation(selections);
+      }
+      panel.querySelectorAll("[data-finish-base],[data-finish-addon]").forEach(function(input) {
+        input.addEventListener("change",updateTotals);
+      });
+      panel.querySelectorAll("[data-finish-price]").forEach(function(input) {
+        input.addEventListener("input",updateTotals);
+      });
+      panel.querySelectorAll("[data-finish-size]").forEach(function(input) {
+        input.addEventListener("change",function() {
+          const id = input.dataset.finishSize;
+          const service = allServices.find(function(item){return item.id === id;});
+          const choice = service && (service.sizeChoices || []).find(function(option){return option.value === input.value;});
+          const price = panel.querySelector('[data-finish-price="' + id + '"]');
+          if (choice && price) price.value = choice.price;
+          updateTotals();
+        });
+      });
+      totalInput.addEventListener("input",function() {
+        manualTotal = true;
+        updateTotals();
+      });
+      panel.querySelector("[data-finish-reset-total]").addEventListener("click",function() {
+        manualTotal = false;
+        const services = getSelections();
+        totalInput.value = Math.round(services.reduce(function(sum, service){return sum + (Number.isFinite(service.amount) ? service.amount : 0);},0) * 100) / 100;
+        updateTotals();
+      });
+      panel.querySelector("[data-finish-review]").addEventListener("click",function() {
+        errorBox.style.display = "none";
+        const selections = getSelections();
+        if (!selections.some(function(service){return service.id.startsWith("groom:");})) {
+          errorBox.textContent = "Выбери одну основную услугу из прайса.";
+          errorBox.style.display = "block";
+          return;
+        }
+        if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
+          errorBox.textContent = "Проверь цену каждой выбранной услуги.";
+          errorBox.style.display = "block";
+          return;
+        }
+        const total = Number(totalInput.value);
+        if (!Number.isFinite(total) || total <= 0 || total > 100000) {
+          errorBox.textContent = "Укажи итоговую сумму больше нуля.";
+          errorBox.style.display = "block";
+          return;
+        }
+        pendingReview = true;
+        renderConfirmation(selections);
+      });
+      panel.querySelector("[data-finish-cancel]").addEventListener("click",function(){panel.innerHTML="";});
+      updateTotals();
+      panel.scrollIntoView({behavior:"smooth",block:"start"});
+    } catch(error) {
+      panel.innerHTML = '<div class="notice">Не удалось загрузить прайс услуг. ' + esc(error.message || "Попробуй ещё раз.") + '</div>';
+    }
+  }
+
   async function renderToday() {
     currentScreen = "today";
     setHead("Главное","Очередь, визиты и заработок за день");
