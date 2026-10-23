@@ -159,7 +159,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   h1{font-size:31px;margin:21px 0 7px}
   .subtitle{font-size:12px}
   main{padding-top:19px;min-height:280px}
-  .mobile-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;z-index:20;bottom:0;left:0;right:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);gap:3px}
+  .mobile-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;z-index:20;bottom:0;left:0;right:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);gap:3px}
   .mobile-nav .tab{display:flex;flex-direction:column;justify-content:center;gap:5px;padding:7px 2px;border-radius:9px;font-size:9px;text-align:center;align-items:center}
   .mobile-nav .tab-symbol{font-size:17px;width:auto;flex:none}
   .metricgrid{gap:7px;margin-bottom:24px}
@@ -186,6 +186,30 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   footer{margin-top:28px;font-size:8px}
 }
 @media(min-width:661px) and (max-width:820px){.app-main{padding-left:20px;padding-right:20px}.shell{grid-template-columns:185px minmax(0,1fr)}.logo-name{font-size:10px}.tab{gap:8px;padding:12px 9px}.tab-symbol{width:16px;flex-basis:16px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.calendar-toolbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:10px;margin:0 0 14px}
+.calendar-month-title{text-align:center;font-size:18px;font-weight:780;letter-spacing:-.035em;text-transform:capitalize}
+.calendar-month-btn{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#111;font-size:22px}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.calendar-weekdays{margin-bottom:6px}
+.calendar-weekday{text-align:center;padding:8px 0;font-size:10px;color:var(--muted);font-weight:750}
+.calendar-day{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;min-height:76px;padding:8px 3px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#111;text-align:center}
+.calendar-day.is-working{border-color:#111;background:#f7f7f7}
+.calendar-day.is-selected{outline:2px solid #111;outline-offset:1px}
+.calendar-day.is-empty{border-color:transparent;background:transparent;pointer-events:none}
+.calendar-day-number{font-size:13px;font-weight:780}
+.calendar-day-time{font-size:9px;color:#555;line-height:1.2;font-variant-numeric:tabular-nums}
+.calendar-day-dot{width:5px;height:5px;border-radius:50%;background:#111;display:block}
+.calendar-day.is-selected .calendar-day-number{background:#111;color:#fff;border-radius:50%;width:24px;height:24px;display:grid;place-items:center}
+.calendar-summary{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 22px;padding:13px 14px;border:1px solid var(--line);border-radius:12px;font-size:12px}
+.calendar-editor{padding:18px;border:1px solid var(--line);border-radius:14px;margin-top:18px}
+.calendar-editor-title{font-size:17px;font-weight:780;letter-spacing:-.035em;margin:7px 0}
+.calendar-time-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}
+.calendar-time-field{display:block;min-width:0}
+.calendar-time-field span{display:block;margin-bottom:7px;font-size:10px;color:var(--muted)}
+.calendar-time-input{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;color:#111;font:inherit;font-size:14px}
+.calendar-editor-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.calendar-editor-actions .btn{margin-top:0}
+.calendar-helper{margin-top:12px;font-size:11px;line-height:1.5;color:var(--muted)}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -195,7 +219,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     <div class="logo-lockup"><div class="logo-mark">PD</div><div><div class="logo-name">PRETTY DOGS</div><div class="logo-caption">GROOMER SPACE</div></div></div>
     <div class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
     <nav class="side-nav" aria-label="Основная навигация">
-      <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Обзор</span></button>
+      <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Главное</span></button>
+      <button class="tab" data-screen="calendar"><span class="tab-symbol">▦</span><span>Календарь</span></button>
       <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
       <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
       <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Заработок</span></button>
@@ -205,14 +230,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   <div class="app-main">
     <header class="page-header">
       <div class="header-overline"><span>PRETTY DOGS / STUDIO</span><span class="header-date" id="header-date"></span><button class="logout-btn" id="logout-btn" type="button">Выйти ↗</button></div>
-      <h1 id="page-title">Обзор</h1>
+      <h1 id="page-title">Главное</h1>
       <div class="subtitle" id="page-subtitle">Твой рабочий день — в одном месте.</div>
     </header>
     <main id="content"><div class="loading">Загружаю данные…</div></main>
     <footer><span>PRETTY DOGS · GROOMER SPACE</span></footer>
   </div>
   <nav class="mobile-nav" aria-label="Основная навигация">
-    <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Обзор</span></button>
+    <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Главное</span></button>
+    <button class="tab" data-screen="calendar"><span class="tab-symbol">▦</span><span>Календарь</span></button>
     <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
     <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
     <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Доход</span></button>
@@ -228,6 +254,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let currentScreen = "today";
   let petQuery = "";
   let earningsRange = "today";
+  let calendarMonth = "";
+  let calendarSelectedDate = "";
   let lastDashboard = null;
   let objectUrls = [];
   let sessionToken = "";
@@ -395,12 +423,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   }
   async function renderToday() {
     currentScreen = "today";
-    setHead("Сегодня","Рабочая панель");
+    setHead("Главное","Очередь, визиты и заработок за день");
     content.innerHTML = '<div class="loading">Загружаю данные…</div>';
     const data = await api("/api/dashboard");
     lastDashboard = data;
     const counts = data.counts || {};
-    const dayOff = !!data.dayOff;
     const rows = data.queue || [];
     content.innerHTML =
       '<div class="dashboard-grid">' +
@@ -414,20 +441,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '</div>' +
       '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div></div><span class="count">' + rows.length + ' ЗАПИСЕЙ</span></div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
-      '<div id="visit-action-panel"></div>' +
-      '<section class="action-form"><div class="eyebrow">Режим работы</div><div style="font-size:14px;font-weight:700;margin:8px 0 5px">' + (dayOff ? 'Сегодня — выходной' : 'Рабочий день активен') + '</div><div class="smallmuted">' + (dayOff ? 'Автоматические напоминания на сегодня отключены.' : 'Отметь выходной, если сегодня не принимаешь клиентов. Записи останутся в расписании.') + '</div><button class="btn ' + (dayOff ? 'secondary' : '') + ' full" id="day-off" ' + (dayOff ? 'disabled' : '') + '>' + (dayOff ? 'Выходной отмечен' : 'Сегодня не работаю') + '</button></section>';
+      '<div id="visit-action-panel"></div>';
 
-    const dayOffButton = document.getElementById("day-off");
-    if (dayOffButton && !dayOff) dayOffButton.addEventListener("click", async function(){
-      dayOffButton.disabled = true;
-      dayOffButton.textContent = "Сохраняю…";
-      try {
-        await api("/api/day-off",{method:"POST",body:"{}"});
-        await renderToday();
-      } catch(error) { showError(error); }
-    });
 
-    content.querySelectorAll("[data-start-visit]").forEach(function(button) {
       button.addEventListener("click", async function() {
         button.disabled = true;
         button.textContent = "Запускаю…";
@@ -478,6 +494,149 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     });
   }
+  function moscowISODate(date) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone:"Europe/Moscow", year:"numeric", month:"2-digit", day:"2-digit"
+    }).formatToParts(date || new Date());
+    const values = {};
+    parts.forEach(function(part){ if (part.type !== "literal") values[part.type] = part.value; });
+    return values.year + "-" + values.month + "-" + values.day;
+  }
+  function calendarMonthLabel(monthValue) {
+    return new Intl.DateTimeFormat("ru-RU", {
+      month:"long", year:"numeric", timeZone:"UTC"
+    }).format(new Date(monthValue + "-01T12:00:00Z"));
+  }
+  function calendarDateLabel(dateValue) {
+    return new Intl.DateTimeFormat("ru-RU", {
+      weekday:"long", day:"numeric", month:"long", year:"numeric", timeZone:"UTC"
+    }).format(new Date(dateValue + "T12:00:00Z"));
+  }
+  function moveCalendarMonth(delta) {
+    const parts = calendarMonth.split("-").map(Number);
+    const next = new Date(Date.UTC(parts[0], parts[1] - 1 + delta, 1));
+    calendarMonth = next.getUTCFullYear() + "-" + String(next.getUTCMonth() + 1).padStart(2, "0");
+    calendarSelectedDate = calendarMonth + "-01";
+    renderCalendar().catch(showError);
+  }
+  async function renderCalendar() {
+    currentScreen = "calendar";
+    if (!calendarMonth) {
+      const today = moscowISODate();
+      calendarMonth = today.slice(0,7);
+      calendarSelectedDate = today;
+    }
+    if (!calendarSelectedDate || calendarSelectedDate.slice(0,7) !== calendarMonth) {
+      calendarSelectedDate = calendarMonth + "-01";
+    }
+    setHead("Календарь","Рабочие дни и время смен");
+    content.innerHTML = '<div class="loading">Загружаю календарь…</div>';
+    const data = await api("/api/work-shifts?month=" + encodeURIComponent(calendarMonth));
+    const shifts = {};
+    (data.shifts || []).forEach(function(shift){ shifts[shift.shift_date] = shift; });
+    const monthParts = calendarMonth.split("-").map(Number);
+    const year = monthParts[0], monthNumber = monthParts[1];
+    const firstWeekday = (new Date(Date.UTC(year,monthNumber-1,1)).getUTCDay() + 6) % 7;
+    const daysInMonth = new Date(Date.UTC(year,monthNumber,0)).getUTCDate();
+    const cells = [];
+    for (let blank = 0; blank < firstWeekday; blank++) cells.push(null);
+    for (let day = 1; day <= daysInMonth; day++) {
+      cells.push(calendarMonth + "-" + String(day).padStart(2,"0"));
+    }
+    const selectedShift = shifts[calendarSelectedDate] || null;
+    const selectedDateLabel = calendarDateLabel(calendarSelectedDate);
+    const selectedHeading = selectedDateLabel.charAt(0).toUpperCase() + selectedDateLabel.slice(1);
+    const weekdays = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(function(day){
+      return '<div class="calendar-weekday">' + day + '</div>';
+    }).join("");
+    const dayCells = cells.map(function(dateValue) {
+      if (!dateValue) return '<div class="calendar-day is-empty" aria-hidden="true"></div>';
+      const dayNumber = Number(dateValue.slice(8,10));
+      const shift = shifts[dateValue];
+      const active = dateValue === calendarSelectedDate;
+      return '<button type="button" class="calendar-day' +
+        (shift ? ' is-working' : '') +
+        (active ? ' is-selected' : '') +
+        '" data-calendar-date="' + dateValue + '" aria-label="' + esc(calendarDateLabel(dateValue)) +
+        (shift ? ', рабочий день ' + shift.start_time + '–' + shift.end_time : ', выходной') + '">' +
+        '<span class="calendar-day-number">' + dayNumber + '</span>' +
+        (shift ? '<span class="calendar-day-time">' + esc(shift.start_time) + '–' + esc(shift.end_time) + '</span><span class="calendar-day-dot"></span>' : '') +
+        '</button>';
+    }).join("");
+    content.innerHTML =
+      '<div class="calendar-toolbar">' +
+        '<button type="button" class="calendar-month-btn" id="calendar-prev" aria-label="Предыдущий месяц">‹</button>' +
+        '<div class="calendar-month-title">' + esc(calendarMonthLabel(calendarMonth)) + '</div>' +
+        '<button type="button" class="calendar-month-btn" id="calendar-next" aria-label="Следующий месяц">›</button>' +
+      '</div>' +
+      '<div class="calendar-grid calendar-weekdays">' + weekdays + '</div>' +
+      '<div class="calendar-grid">' + dayCells + '</div>' +
+      '<div class="calendar-summary"><span>Рабочих дней в месяце</span><strong>' + Object.keys(shifts).length + '</strong></div>' +
+      '<section class="calendar-editor">' +
+        '<div class="eyebrow">' + (selectedShift ? 'РАБОЧАЯ СМЕНА' : 'ВЫХОДНОЙ') + '</div>' +
+        '<div class="calendar-editor-title">' + esc(selectedHeading) + '</div>' +
+        '<div class="smallmuted">' + (selectedShift ? 'Измени часы смены или убери этот рабочий день.' : 'Добавь рабочий день и задай время приёма.') + '</div>' +
+        '<div class="calendar-time-fields">' +
+          '<label class="calendar-time-field"><span>НАЧАЛО СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-start" value="' + esc(selectedShift ? selectedShift.start_time : '10:00') + '" required></label>' +
+          '<label class="calendar-time-field"><span>КОНЕЦ СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-end" value="' + esc(selectedShift ? selectedShift.end_time : '20:00') + '" required></label>' +
+        '</div>' +
+        '<div class="calendar-editor-actions">' +
+          '<button type="button" class="btn" id="calendar-save">' + (selectedShift ? 'Сохранить изменения' : 'Добавить рабочий день') + '</button>' +
+          (selectedShift ? '<button type="button" class="btn secondary" id="calendar-remove">Убрать рабочий день</button>' : '<button type="button" class="btn secondary" id="calendar-today">К текущему месяцу</button>') +
+        '</div>' +
+        '<div class="calendar-helper">При удалении рабочего дня записи клиентов не удаляются — меняется только график смен.</div>' +
+      '</section>';
+    document.getElementById("calendar-prev").addEventListener("click",function(){moveCalendarMonth(-1);});
+    document.getElementById("calendar-next").addEventListener("click",function(){moveCalendarMonth(1);});
+    content.querySelectorAll("[data-calendar-date]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        calendarSelectedDate = button.dataset.calendarDate;
+        renderCalendar().catch(showError);
+      });
+    });
+    document.getElementById("calendar-save").addEventListener("click",async function() {
+      const startTime = document.getElementById("calendar-start").value;
+      const endTime = document.getElementById("calendar-end").value;
+      if (!startTime || !endTime || startTime >= endTime) {
+        showError(new Error("Проверь время начала и окончания смены."));
+        return;
+      }
+      const saveButton = document.getElementById("calendar-save");
+      saveButton.disabled = true;
+      saveButton.textContent = "Сохраняю…";
+      try {
+        await api("/api/work-shifts", {
+          method:"POST",
+          body:JSON.stringify({date:calendarSelectedDate,startTime:startTime,endTime:endTime})
+        });
+        await renderCalendar();
+      } catch(error) {
+        showError(error);
+      }
+    });
+    const removeButton = document.getElementById("calendar-remove");
+    if (removeButton) {
+      removeButton.addEventListener("click",async function() {
+        if (!confirm("Убрать рабочий день " + calendarDateLabel(calendarSelectedDate) + "? Записи клиентов останутся.")) return;
+        removeButton.disabled = true;
+        removeButton.textContent = "Убираю…";
+        try {
+          await api("/api/work-shifts?date=" + encodeURIComponent(calendarSelectedDate), {method:"DELETE"});
+          await renderCalendar();
+        } catch(error) {
+          showError(error);
+        }
+      });
+    } else {
+      document.getElementById("calendar-today").addEventListener("click",function() {
+        const today = moscowISODate();
+        calendarMonth = today.slice(0,7);
+        calendarSelectedDate = today;
+        renderCalendar().catch(showError);
+      });
+    }
+  }
+
   const PET_CARD_FIELDS = [
     ["name","Имя","input"],
     ["species","Вид","select"],
@@ -931,6 +1090,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     clearObjectUrls();
     try {
       if(screen==="today") await renderToday();
+      else if(screen==="calendar") await renderCalendar();
       else if(screen==="pets") await renderPets();
       else if(screen==="visits") await renderVisits();
       else if(screen==="earnings") await renderEarnings();
