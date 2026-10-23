@@ -231,7 +231,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let lastDashboard = null;
   let objectUrls = [];
   let sessionToken = "";
-  try { sessionToken = sessionStorage.getItem("pretty-dogs-session") || ""; } catch(e) {}
+  try { sessionToken = localStorage.getItem("pretty-dogs-session") || ""; } catch(e) {}
 
   const headerDate = document.getElementById("header-date");
   if (headerDate) {
@@ -246,7 +246,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     } else {
       logoutButton.addEventListener("click",function() {
         sessionToken = "";
-        try { sessionStorage.removeItem("pretty-dogs-session"); } catch(e) {}
+        try { localStorage.removeItem("pretty-dogs-session"); } catch(e) {}
         clearObjectUrls();
         renderLogin();
       });
@@ -319,7 +319,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       error.status = response.status;
       if (!initData && response.status === 401 && path !== "/api/login") {
         sessionToken = "";
-        try { sessionStorage.removeItem("pretty-dogs-session"); } catch(e) {}
+        try { localStorage.removeItem("pretty-dogs-session"); } catch(e) {}
       }
       throw error;
     }
@@ -355,7 +355,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       try {
         const result = await api("/api/login",{method:"POST",body:JSON.stringify({password:pass})});
         sessionToken = result.token;
-        try { sessionStorage.setItem("pretty-dogs-session", sessionToken); } catch(e) {}
+        try { localStorage.setItem("pretty-dogs-session", sessionToken); } catch(e) {}
         document.body.classList.remove("logged-out");
         await navigate("today");
       } catch(error) {
