@@ -1,4 +1,5 @@
 import { WEB_APP_HTML } from "./web-app.js";
+import { getBreedVariantOptions, getServiceOptions, resolveServiceSelection } from "./service-catalog.js";
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TIME_ZONE = "Europe/Moscow";
@@ -313,6 +314,11 @@ await env.DB.prepare(`
     if (!String(error?.message || error).includes("duplicate column name")) {
       throw error;
     }
+  }
+  try {
+    await env.DB.prepare("ALTER TABLE dogs ADD COLUMN breed_variant TEXT").run();
+  } catch (error) {
+    if (!String(error?.message || error).includes("duplicate column name")) throw error;
   }
 
 }
@@ -4474,12 +4480,10 @@ async function migrateLegacyTelegramPhotos(env, limit = 8) {
   return { migrated, remaining: status.total, status, errors };
 }
 
-async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, servicesText) {
-  const parsed = parseServiceLines(servicesText);
-  if (parsed.error) return { error: parsed.error, status: 400 };
+async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, body) {
   const appointment = await env.DB.prepare(`
-    SELECT a.id, a.status, a.appointment_date, a.appointment_time,
-           a.actual_start_time, d.name
+    SELECT a.id, a.dog_id, a.status, a.appointment_date, a.appointment_time,
+           a.actual_start_time, d.name, d.species, d.breed, d.breed_variant
     FROM appointments a
     JOIN dogs d ON d.id = a.dog_id
     WHERE a.id = ?
@@ -4491,27 +4495,60 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, ser
   if (appointment.status !== "in_progress") {
     return { error: "Визит не находится в работе.", status: 409 };
   }
-  const services = parsed.services;
+
+  const selected = resolveServiceSelection(appointment, body?.selectedServices);
+  if (selected.error) return selected;
+  const services = selected.services;
+  const finalTotal = Number(body?.finalTotal);
+  if (!Number.isFinite(finalTotal) || finalTotal <= 0 || finalTotal > 100000) {
+    return { error: "Укажи итоговую сумму визита больше нуля.", status: 400 };
+  }
+  const roundedTotal = Math.round(finalTotal * 100) / 100;
+  const selectedTotal = Math.round(services.reduce((sum, service) => sum + service.amount, 0) * 100) / 100;
+  const correction = Math.round((roundedTotal - selectedTotal) * 100) / 100;
   const endTime = localTime();
   const startTime = appointment.actual_start_time || appointment.appointment_time || endTime;
   const startMs = localDateTimeMs(appointment.appointment_date, startTime);
   const endMs = localDateTimeMs(appointment.appointment_date, endTime);
   const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
-  const statements = services.map((service, index) =>
+
+  const entries = services.map(service => ({
+    description: service.label,
+    amount: service.amount,
+    rate: service.rate || 35,
+    earned: Math.round(service.amount * (service.rate || 35)) / 100
+  }));
+  if (Math.abs(correction) >= 0.01) {
+    entries.push({
+      description: "Корректировка итоговой суммы",
+      amount: correction,
+      rate: 35,
+      earned: Math.round(correction * 35) / 100
+    });
+  }
+
+  const statements = entries.map((entry, index) =>
     env.DB.prepare(`
       INSERT OR IGNORE INTO earnings_entries (
         service_date, description, amount, rate, earned,
         appointment_id, source, source_id
-      ) VALUES (?, ?, ?, 35, ?, ?, 'visit', ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, 'visit', ?)
     `).bind(
       appointment.appointment_date,
-      service.description,
-      service.amount,
-      Math.round(service.amount * 0.35 * 100) / 100,
+      entry.description,
+      entry.amount,
+      entry.rate,
+      entry.earned,
       appointmentId,
-      `${appointmentId}:${index + 1}`
+      Math.abs(correction) >= 0.01 && index === entries.length - 1
+        ? `${appointmentId}:adjustment`
+        : `${appointmentId}:${index + 1}`
     )
   );
+  const procedures = entries.map(entry => {
+    const amount = Number(entry.amount.toFixed(2)).toString();
+    return `${entry.description}: ${amount}`;
+  }).join("; ");
   statements.push(env.DB.prepare(`
     UPDATE appointments
     SET status = 'completed',
@@ -4520,19 +4557,20 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, ser
         actual_duration_minutes = ?,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND status = 'in_progress'
-  `).bind(
-    services.map(service => `${service.description}: ${service.amount}`).join("; "),
-    endTime,
-    durationMinutes,
-    appointmentId
-  ));
+  `).bind(procedures, endTime, durationMinutes, appointmentId));
+
   await env.DB.batch(statements);
   const updated = await env.DB.prepare("SELECT status, actual_duration_minutes FROM appointments WHERE id = ?")
     .bind(appointmentId).first();
   if (updated?.status !== "completed") return { error: "Не удалось завершить визит.", status: 500 };
-  return { appointmentId, actualDurationMinutes: Number(updated.actual_duration_minutes || 0) };
+  const earned = Math.round(entries.reduce((sum, entry) => sum + entry.earned, 0) * 100) / 100;
+  return {
+    appointmentId,
+    actualDurationMinutes: Number(updated.actual_duration_minutes || 0),
+    finalTotal: roundedTotal,
+    earned
+  };
 }
-
 async function handleWebApi(request, env) {
   if (!env.DB) {
     return webApiResponse({ error: "Не подключена база данных D1." }, 500);
@@ -4590,6 +4628,26 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, ...result });
     }
 
+    if (request.method === "GET" && path === "/api/breed-variants") {
+      const breed = String(url.searchParams.get("breed") || "").trim().slice(0, 120);
+      const species = String(url.searchParams.get("species") || "dog");
+      return webApiResponse(getBreedVariantOptions(breed, species));
+    }
+
+    if (request.method === "GET" && path === "/api/service-options") {
+      const dogId = Number(url.searchParams.get("dogId") || 0);
+      if (!Number.isSafeInteger(dogId) || dogId <= 0) {
+        return webApiResponse({ error: "Не удалось определить питомца для расчёта." }, 400);
+      }
+      const pet = await env.DB.prepare(`
+        SELECT id, name, species, breed, breed_variant
+        FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(dogId).first();
+      if (!pet) return webApiResponse({ error: "Карточка питомца не найдена." }, 404);
+      return webApiResponse(getServiceOptions(pet));
+    }
+
     if (request.method === "GET" && path === "/api/work-shifts") {
       const targetMonth = String(url.searchParams.get("month") || month);
       if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
@@ -4626,7 +4684,7 @@ async function handleWebApi(request, env) {
       const result = await env.DB.prepare(`
         SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
                a.status, a.queue_position, a.procedures, a.planned_duration_minutes,
-               d.name, d.breed, d.species
+               d.name, d.breed, d.species, d.breed_variant
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
         WHERE a.status IN ('scheduled', 'waiting', 'in_progress')
@@ -4653,7 +4711,7 @@ async function handleWebApi(request, env) {
                  FROM earnings_entries e
                  WHERE e.appointment_id = a.id
                ), 0) AS earned,
-               d.id AS dog_id, d.name, d.breed
+               d.id AS dog_id, d.name, d.breed, d.breed_variant, d.species
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
         WHERE a.appointment_date = ?
@@ -4847,7 +4905,7 @@ async function handleWebApi(request, env) {
       const query = String(url.searchParams.get("q") || "").trim().slice(0, 100);
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
-        SELECT id, name, species, breed, notes, warnings,
+        SELECT id, name, species, breed, breed_variant, notes, warnings,
                (
                  SELECT pcp.dog_id
                  FROM pet_cover_photos pcp
@@ -4890,12 +4948,12 @@ async function handleWebApi(request, env) {
       const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
       const result = await env.DB.prepare(`
         INSERT INTO dogs (
-          name, species, breed, age, coat_features, matting_tendency,
+          name, species, breed, breed_variant, age, coat_features, matting_tendency,
           sensitive_areas, clipper_reaction, dryer_reaction,
           nail_clipper_reaction, warnings, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        name, species, fieldValue("breed"), fieldValue("age"),
+        name, species, fieldValue("breed"), fieldValue("breed_variant"), fieldValue("age"),
         fieldValue("coat_features"), fieldValue("matting_tendency"),
         fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
         fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
@@ -5100,13 +5158,13 @@ async function handleWebApi(request, env) {
       const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
       const updated = await env.DB.prepare(`
         UPDATE dogs
-        SET name = ?, species = ?, breed = ?, age = ?,
+        SET name = ?, species = ?, breed = ?, breed_variant = ?, age = ?,
             coat_features = ?, matting_tendency = ?, sensitive_areas = ?,
             clipper_reaction = ?, dryer_reaction = ?,
             nail_clipper_reaction = ?, warnings = ?, notes = ?
         WHERE id = ? AND COALESCE(is_temporary, 0) = 0
       `).bind(
-        name, species, fieldValue("breed"), fieldValue("age"),
+        name, species, fieldValue("breed"), fieldValue("breed_variant"), fieldValue("age"),
         fieldValue("coat_features"), fieldValue("matting_tendency"),
         fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
         fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
@@ -5120,7 +5178,7 @@ async function handleWebApi(request, env) {
     if (request.method === "GET" && petMatch) {
       const petId = Number(petMatch[1]);
       const pet = await env.DB.prepare(`
-        SELECT id, name, species, breed, age, coat_features, matting_tendency,
+        SELECT id, name, species, breed, breed_variant, age, coat_features, matting_tendency,
                warnings, sensitive_areas, clipper_reaction, dryer_reaction,
                nail_clipper_reaction, notes
         FROM dogs
@@ -5271,10 +5329,15 @@ async function handleWebApi(request, env) {
       } catch {
         return webApiResponse({ error: "Не удалось прочитать услуги." }, 400);
       }
-      const servicesText = String(body.servicesText || "").trim();
-      const result = await finishWebVisitWithoutBot(env, appointmentId, date, servicesText);
+      const result = await finishWebVisitWithoutBot(env, appointmentId, date, body);
       if (result.error) return webApiResponse({ error: result.error }, result.status || 400);
-      return webApiResponse({ ok: true, appointmentId, actualDurationMinutes: result.actualDurationMinutes });
+      return webApiResponse({
+        ok: true,
+        appointmentId,
+        actualDurationMinutes: result.actualDurationMinutes,
+        finalTotal: result.finalTotal,
+        earned: result.earned
+      });
     }
 
     if (request.method === "POST" && path === "/api/day-off") {
