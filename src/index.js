@@ -4371,6 +4371,153 @@ async function handleWebApi(request, env) {
       return webApiResponse({ pets: result.results || [] });
     }
 
+    const petPhotoImageMatch = path.match(/^\/api\/grooming-photos\/(\d+)\/image$/);
+    if (request.method === "GET" && petPhotoImageMatch) {
+      const photo = await env.DB.prepare(`
+        SELECT telegram_file_id
+        FROM grooming_card_photos
+        WHERE id = ?
+      `).bind(Number(petPhotoImageMatch[1])).first();
+
+      if (!photo?.telegram_file_id) {
+        return webApiResponse({ error: "Фотография не найдена." }, 404);
+      }
+
+      const fileInfoResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(photo.telegram_file_id)}`
+      );
+      const fileInfo = await fileInfoResponse.json();
+      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
+        return webApiResponse({ error: "Не удалось получить фотографию." }, 502);
+      }
+
+      const imageResponse = await fetch(
+        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
+      );
+      if (!imageResponse.ok) {
+        return webApiResponse({ error: "Не удалось загрузить фотографию." }, 502);
+      }
+
+      return new Response(imageResponse.body, {
+        status: 200,
+        headers: {
+          "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer"
+        }
+      });
+    }
+
+    const petPhotosMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-photos$/);
+    if (request.method === "POST" && petPhotosMatch) {
+      const petId = Number(petPhotosMatch[1]);
+      const pet = await env.DB.prepare(`
+        SELECT id, name, species, breed
+        FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(petId).first();
+
+      if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
+      if (pet.species !== "dog" || !shouldHavePhotoArchive(pet)) {
+        return webApiResponse({ error: "Фото к карте доступны только для пород из действующего фотоархива." }, 400);
+      }
+
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400);
+      }
+
+      const photoFile = form.get("photo");
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") {
+        return webApiResponse({ error: "Выбери фотографию." }, 400);
+      }
+      if (!String(photoFile.type || "").startsWith("image/")) {
+        return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      }
+      if (photoFile.size > 10 * 1024 * 1024) {
+        return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      }
+
+      const upload = new FormData();
+      upload.append("chat_id", String(auth.user.id));
+      upload.append("photo", photoFile, photoFile.name || "grooming-card.jpg");
+
+      const telegramResponse = await fetch(
+        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/sendPhoto`,
+        { method: "POST", body: upload }
+      );
+      const telegramResult = await telegramResponse.json();
+
+      if (!telegramResponse.ok || !telegramResult.ok || !telegramResult.result?.photo?.length) {
+        console.error("Web app photo upload failed:", telegramResult);
+        return webApiResponse({ error: "Telegram не смог принять фотографию. Попробуй выбрать изображение поменьше." }, 502);
+      }
+
+      const fileId = telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id;
+      const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
+
+      await env.DB.prepare(`
+        INSERT INTO grooming_card_photos (
+          dog_id, telegram_file_id, caption
+        ) VALUES (?, ?, ?)
+      `).bind(petId, fileId, caption).run();
+
+      // The photo is sent temporarily to obtain Telegram's durable file_id, then removed from the chat.
+      try {
+        await fetch(
+          `${TELEGRAM_API}/bot${env.BOT_TOKEN}/deleteMessage`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: String(auth.user.id),
+              message_id: telegramResult.result.message_id
+            })
+          }
+        );
+      } catch (error) {
+        console.error("Temporary photo message cleanup failed:", error);
+      }
+
+      return webApiResponse({ ok: true, petId, caption });
+    }
+
+    const cardEditMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-card$/);
+    if (request.method === "POST" && cardEditMatch) {
+      const petId = Number(cardEditMatch[1]);
+      const pet = await env.DB.prepare(`
+        SELECT id, species
+        FROM dogs
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(petId).first();
+
+      if (!pet) return webApiResponse({ error: "Питомец не найден." }, 404);
+      if (pet.species !== "dog") return webApiResponse({ error: "Карта стрижки доступна только для собак." }, 400);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать данные карты." }, 400);
+      }
+
+      const fields = [
+        "body_length", "legs_length", "face_length", "tail_length",
+        "head_shape", "paws_shape", "attachments", "blades",
+        "owner_preferences", "next_visit_changes"
+      ];
+      const card = {};
+      for (const field of fields) {
+        card[field] = String(body[field] || "").trim().slice(0, 500);
+      }
+
+      await saveGroomingCard(env, petId, card);
+      return webApiResponse({ ok: true });
+    }
+
     const petMatch = path.match(/^\/api\/pets\/(\d+)$/);
     if (request.method === "GET" && petMatch) {
       const petId = Number(petMatch[1]);
@@ -4387,16 +4534,22 @@ async function handleWebApi(request, env) {
       let groomingCard = null;
       if (pet.species === "dog") groomingCard = await getGroomingCard(env, petId);
 
-      const photoCountRow = await env.DB.prepare(`
-        SELECT COUNT(*) AS count
+      const photoResult = await env.DB.prepare(`
+        SELECT id, caption, created_at
         FROM grooming_card_photos
         WHERE dog_id = ?
-      `).bind(petId).first();
+        ORDER BY id DESC
+        LIMIT 12
+      `).bind(petId).all();
+
+      const photos = photoResult.results || [];
 
       return webApiResponse({
         pet,
         groomingCard,
-        groomingPhotoCount: Number(photoCountRow?.count || 0)
+        photoArchiveAllowed: shouldHavePhotoArchive(pet),
+        photos,
+        groomingPhotoCount: photos.length
       });
     }
 
@@ -4449,6 +4602,87 @@ async function handleWebApi(request, env) {
         totalEarned: Number(summary?.totalEarned || 0),
         entries: entriesResult.results || []
       });
+    }
+
+    const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
+    if (request.method === "POST" && startVisitMatch) {
+      const appointmentId = Number(startVisitMatch[1]);
+      const appointment = await env.DB.prepare(`
+        SELECT id, dog_id, appointment_date, status
+        FROM appointments
+        WHERE id = ?
+      `).bind(appointmentId).first();
+
+      if (!appointment) return webApiResponse({ error: "Запись не найдена." }, 404);
+      if (appointment.appointment_date !== date) {
+        return webApiResponse({ error: "Из веб-приложения можно запускать только сегодняшние записи." }, 400);
+      }
+      if (!["scheduled", "waiting"].includes(appointment.status)) {
+        return webApiResponse({ error: "Эта запись уже не ожидает начала визита." }, 409);
+      }
+
+      await startVisit(env, String(auth.user.id), appointment.dog_id, appointmentId);
+      const updated = await env.DB.prepare(`
+        SELECT status, actual_start_time
+        FROM appointments
+        WHERE id = ?
+      `).bind(appointmentId).first();
+
+      if (updated?.status !== "in_progress") {
+        return webApiResponse({ error: "Не удалось начать визит. Проверь сообщение бота." }, 409);
+      }
+
+      return webApiResponse({ ok: true, appointmentId, startTime: updated.actual_start_time });
+    }
+
+    const finishVisitMatch = path.match(/^\/api\/visits\/(\d+)\/finish$/);
+    if (request.method === "POST" && finishVisitMatch) {
+      const appointmentId = Number(finishVisitMatch[1]);
+      const appointment = await env.DB.prepare(`
+        SELECT a.id, a.appointment_date, a.status, d.name
+        FROM appointments a
+        JOIN dogs d ON d.id = a.dog_id
+        WHERE a.id = ?
+      `).bind(appointmentId).first();
+
+      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
+      if (appointment.appointment_date !== date) {
+        return webApiResponse({ error: "Из веб-приложения можно завершать только сегодняшние визиты." }, 400);
+      }
+      if (appointment.status !== "in_progress") {
+        return webApiResponse({ error: "Визит не находится в работе." }, 409);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать услуги." }, 400);
+      }
+
+      const servicesText = String(body.servicesText || "").trim();
+      const parsed = parseServiceLines(servicesText);
+      if (parsed.error) return webApiResponse({ error: parsed.error }, 400);
+
+      await saveVisitEarnings(env, String(auth.user.id), {
+        type: "visit_earnings",
+        appointmentId,
+        petName: appointment.name,
+        serviceDate: appointment.appointment_date,
+        lines: []
+      }, servicesText);
+
+      const finished = await env.DB.prepare(`
+        SELECT status, actual_duration_minutes
+        FROM appointments
+        WHERE id = ?
+      `).bind(appointmentId).first();
+
+      if (finished?.status !== "completed") {
+        return webApiResponse({ error: "Не удалось завершить визит. Проверь последнее сообщение бота." }, 500);
+      }
+
+      return webApiResponse({ ok: true, appointmentId, actualDurationMinutes: finished.actual_duration_minutes });
     }
 
     if (request.method === "POST" && path === "/api/day-off") {
