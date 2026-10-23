@@ -143,6 +143,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .logged-out .page-header{margin-bottom:0}
 .logout-btn{border:0;background:transparent;color:#8a8a8a;font-size:10px;padding:5px 0}
 .logout-btn:hover{color:#111}
+.header-date{margin-left:auto}
 @media(max-width:980px){.shell{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding-left:13px;padding-right:12px}.app-main{padding-left:26px;padding-right:26px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
 @media(max-width:660px){
   body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
@@ -199,7 +200,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   </aside>
   <div class="app-main">
     <header class="page-header">
-      <div class="header-overline"><span>PRETTY DOGS / STUDIO</span><span class="header-date" id="header-date"></span></div>
+      <div class="header-overline"><span>PRETTY DOGS / STUDIO</span><span class="header-date" id="header-date"></span><button class="logout-btn" id="logout-btn" type="button">Выйти ↗</button></div>
       <h1 id="page-title">Обзор</h1>
       <div class="subtitle" id="page-subtitle">Твой рабочий день — в одном месте.</div>
     </header>
@@ -233,6 +234,18 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     headerDate.textContent = new Intl.DateTimeFormat("ru-RU", {
       weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Moscow"
     }).format(new Date());
+  }
+  const logoutButton = document.getElementById("logout-btn");
+  if (logoutButton) {
+    if (initData) {
+      logoutButton.style.display = "none";
+    } else {
+      logoutButton.addEventListener("click",function() {
+        sessionToken = "";
+        try { sessionStorage.removeItem("pretty-dogs-session"); } catch(e) {}
+        renderLogin();
+      });
+    }
   }
 
   if (tg) {
@@ -547,7 +560,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (count) count.textContent = pets.length + (pets.length === 100 ? "+" : "") + (pets.length === 1 ? " питомец" : pets.length > 1 && pets.length < 5 ? " питомца" : " питомцев");
         host.innerHTML = pets.length ? pets.map(function(pet) {
           const description = [pet.species === "cat" ? "Кошка" : "Собака", pet.breed].filter(Boolean).join(" · ");
-          const initials = String(pet.name || "?").trim().split(/\\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
+          const initials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
           const cover = pet.cover_photo_id
             ? '<div class="pet-cover-placeholder" data-photo-fallback>' + esc(initials) + '</div><img alt="Фото питомца" loading="lazy" style="display:none" data-cover-photo-id="' + Number(pet.cover_photo_id) + '">'
             : '<div class="pet-cover-placeholder">' + esc(initials) + '</div>';
@@ -596,7 +609,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const pet = data.pet || {};
     const card = data.groomingCard || {};
     const photos = data.photos || [];
-    const coverInitials = String(pet.name || "?").trim().split(/\\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
+    const coverInitials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
     const profileCover = photos.length
       ? '<span class="profile-fallback" data-photo-fallback>' + esc(coverInitials) + '</span><img alt="Фото питомца" data-profile-photo data-cover-photo-id="' + Number(photos[0].id) + '" src="" style="display:none">'
       : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
