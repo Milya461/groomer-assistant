@@ -147,6 +147,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 @media(max-width:980px){.shell{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding-left:13px;padding-right:12px}.app-main{padding-left:26px;padding-right:26px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
 @media(max-width:660px){
   body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .header-date{display:none}
   .shell{display:block;min-height:100vh}
   .sidebar{display:none}
   .app-main{padding:0 18px 18px}
@@ -243,6 +244,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       logoutButton.addEventListener("click",function() {
         sessionToken = "";
         try { sessionStorage.removeItem("pretty-dogs-session"); } catch(e) {}
+        clearObjectUrls();
         renderLogin();
       });
     }
