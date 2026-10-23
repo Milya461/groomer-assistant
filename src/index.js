@@ -4676,7 +4676,7 @@ async function handleWebApi(request, env) {
                ), 0) AS earned
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
-        WHERE a.status IN ('completed', 'in_progress', 'scheduled', 'waiting')
+        WHERE a.status IN ('completed', 'in_progress')
         ORDER BY a.appointment_date DESC,
                  COALESCE(a.actual_end_time, a.actual_start_time, a.appointment_time, '') DESC,
                  a.id DESC
