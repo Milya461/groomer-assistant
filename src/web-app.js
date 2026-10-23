@@ -268,6 +268,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   .appointment-card .inlineaction,.appointment-card .status{grid-column:2;justify-self:start}
   .appointment-form{padding:14px}
 }
+#add-appointment{white-space:nowrap}
+@media(max-width:660px){#add-appointment{padding:10px 9px;font-size:10px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -730,11 +732,12 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div class="calendar-legend">' +
         '<span class="calendar-legend-item"><i class="calendar-legend-mark working"></i>Рабочий день</span>' +
         '<span class="calendar-legend-item"><i class="calendar-legend-mark today"></i>Сегодня</span>' +
+        '<span class="calendar-legend-item"><i class="calendar-legend-mark selected"></i>Выбрана дата</span>' +
         '<span class="calendar-legend-item"><i class="calendar-legend-mark"></i>Выходной</span>' +
       '</div>' +
       '<div class="calendar-summary"><span>Рабочих дней в месяце</span><strong>' + Object.keys(shifts).length + '</strong></div>' +
       '<section class="calendar-day-appointments">' +
-        '<div class="sectionhead" style="margin:0 0 8px"><div><h2>Записи на дату</h2><div class="smallmuted" style="margin-top:5px">' + esc(selectedHeading) + '</div></div><button type="button" class="btn" id="calendar-add-appointment">＋ Добавить запись</button></div>' +
+        '<div class="sectionhead" style="margin:0 0 8px"><div><h2>Записи на дату</h2><div class="smallmuted" style="margin-top:5px">' + esc(selectedHeading) + '</div></div><button type="button" class="btn" id="calendar-add-appointment" ' + (selectedShift ? '' : 'disabled') + '>' + (selectedShift ? '＋ Добавить запись' : 'Сначала добавь смену') + '</button></div>' +
         (selectedDateAppointments.length ? selectedDateAppointments.map(function(item) {
           return '<article class="appointment-card">' +
             '<div class="appointment-card-time">' + esc(item.appointment_time || "—") + '</div>' +
