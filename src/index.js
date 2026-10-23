@@ -4371,6 +4371,41 @@ async function handleWebApi(request, env) {
       return webApiResponse({ pets: result.results || [] });
     }
 
+    if (request.method === "POST" && path === "/api/pets") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать карточку." }, 400);
+      }
+
+      const name = String(body.name || "").trim();
+      const species = String(body.species || "");
+      if (!name || name.length > 100) {
+        return webApiResponse({ error: "Укажи имя питомца (до 100 символов)." }, 400);
+      }
+      if (!["dog", "cat"].includes(species)) {
+        return webApiResponse({ error: "Выбери вид питомца." }, 400);
+      }
+
+      const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
+      const result = await env.DB.prepare(`
+        INSERT INTO dogs (
+          name, species, breed, age, coat_features, matting_tendency,
+          sensitive_areas, clipper_reaction, dryer_reaction,
+          nail_clipper_reaction, warnings, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        name, species, fieldValue("breed"), fieldValue("age"),
+        fieldValue("coat_features"), fieldValue("matting_tendency"),
+        fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
+        fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
+        fieldValue("warnings"), fieldValue("notes")
+      ).run();
+
+      return webApiResponse({ ok: true, id: Number(result.meta.last_row_id) }, 201);
+    }
+
     const petPhotoImageMatch = path.match(/^\/api\/grooming-photos\/(\d+)\/image$/);
     if (request.method === "GET" && petPhotoImageMatch) {
       const photo = await env.DB.prepare(`
@@ -4519,11 +4554,49 @@ async function handleWebApi(request, env) {
     }
 
     const petMatch = path.match(/^\/api\/pets\/(\d+)$/);
+    if (request.method === "POST" && petMatch) {
+      const petId = Number(petMatch[1]);
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать карточку." }, 400);
+      }
+
+      const name = String(body.name || "").trim();
+      const species = String(body.species || "");
+      if (!name || name.length > 100) {
+        return webApiResponse({ error: "Укажи имя питомца (до 100 символов)." }, 400);
+      }
+      if (!["dog", "cat"].includes(species)) {
+        return webApiResponse({ error: "Выбери вид питомца." }, 400);
+      }
+
+      const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
+      const updated = await env.DB.prepare(`
+        UPDATE dogs
+        SET name = ?, species = ?, breed = ?, age = ?,
+            coat_features = ?, matting_tendency = ?, sensitive_areas = ?,
+            clipper_reaction = ?, dryer_reaction = ?,
+            nail_clipper_reaction = ?, warnings = ?, notes = ?
+        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+      `).bind(
+        name, species, fieldValue("breed"), fieldValue("age"),
+        fieldValue("coat_features"), fieldValue("matting_tendency"),
+        fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
+        fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
+        fieldValue("warnings"), fieldValue("notes"), petId
+      ).run();
+
+      if (!updated.meta?.changes) return webApiResponse({ error: "Карточка не найдена или не изменена." }, 404);
+      return webApiResponse({ ok: true, id: petId });
+    }
+
     if (request.method === "GET" && petMatch) {
       const petId = Number(petMatch[1]);
       const pet = await env.DB.prepare(`
-        SELECT id, name, species, breed, coat_features, warnings,
-               sensitive_areas, clipper_reaction, dryer_reaction,
+        SELECT id, name, species, breed, age, coat_features, matting_tendency,
+               warnings, sensitive_areas, clipper_reaction, dryer_reaction,
                nail_clipper_reaction, notes
         FROM dogs
         WHERE id = ? AND COALESCE(is_temporary, 0) = 0
