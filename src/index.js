@@ -4232,6 +4232,8 @@ function constantTimeHexEqual(left, right) {
   return difference === 0;
 }
 
+const WEB_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 async function authenticateWebApp(request, env) {
   const header = request.headers.get("Authorization") || "";
 
@@ -4246,7 +4248,7 @@ async function authenticateWebApp(request, env) {
     const expiresAt = Number(parts[0] || 0);
     const nowSeconds = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(expiresAt) || expiresAt <= nowSeconds ||
-        expiresAt > nowSeconds + 24 * 60 * 60 + 60 || parts.length !== 2) {
+        expiresAt > nowSeconds + WEB_SESSION_TTL_SECONDS + 60 || parts.length !== 2) {
       return { error: "Сеанс истёк. Войди ещё раз.", status: 401 };
     }
 
@@ -4359,7 +4361,7 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Пароль не подошёл. Проверь его и попробуй ещё раз." }, 401);
       }
 
-      const expiresAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+      const expiresAt = Math.floor(Date.now() / 1000) + WEB_SESSION_TTL_SECONDS;
       const signature = bytesToHex(await hmacSha256(
         new TextEncoder().encode(configuredPassword),
         new TextEncoder().encode("pretty-dogs-session:" + expiresAt)
