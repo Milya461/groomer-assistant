@@ -444,6 +444,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div id="visit-action-panel"></div>';
 
 
+    content.querySelectorAll("[data-start-visit]").forEach(function(button) {
       button.addEventListener("click", async function() {
         button.disabled = true;
         button.textContent = "Запускаю…";
