@@ -216,7 +216,7 @@ function baseServicesForPet(pet) {
     { aliases: ["помапу", "pomapoo"], prices: [["Под машинку",3100],["Средняя стрижка",3400],["По красивой",3700]] },
     { aliases: ["спаниель", "spaniel"], prices: [groom("spaniel", "Стрижка по прайсу",3400)] },
     { aliases: ["мопс", "pug"], prices: [["Комплекс",3100]] },
-    { aliases: ["бульдог", "bulldog"], prices: [["Комплекс",3100]] },
+    { aliases: ["бульдог", "bulldog"], prices: [item("groom:complex", "Комплекс", 3100, { type: "base", priceRange: { min: 3100, max: 3600 }, note: "В прайсе указан диапазон 3 100–3 600 ₽; итоговую сумму можно исправить" })] },
     { aliases: ["гриффон", "griffon"], prices: [["Комплекс",3200]] },
     { aliases: ["джек рассел", "джек-рассел", "jack russell"], prices: [["Комплекс",3100]] },
     { aliases: ["фокстерьер", "фокс терьер", "fox terrier"], prices: [["Комплекс",3200]] },
@@ -229,9 +229,9 @@ function baseServicesForPet(pet) {
   ];
   const rule = rules.find(row => containsAny(breed, row.aliases));
   if (rule) {
-    return rule.prices.map((entry, index) => Array.isArray(entry)
+    return rule.prices.map(entry => Array.isArray(entry)
       ? groom(entry[0].toLowerCase().replace(/[^a-zа-я0-9]+/gi, "-"), entry[0], entry[1])
-      : item(entry.id, entry.label, entry.price, { type: "base", editable: Boolean(entry.editable) }));
+      : { ...entry, type: "base" });
   }
   return [item("groom:manual", "Другая услуга · цена вручную", 0, { type: "base", editable: true })];
 }
