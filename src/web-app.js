@@ -504,7 +504,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (item.status === "scheduled" || item.status === "waiting") {
       action = '<button class="inlineaction primary-action" data-start-visit="' + id + '">▶ Начать визит</button>';
     } else if (item.status === "in_progress") {
-      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
+      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
     }
     return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
       '<button type="button" class="visit-record-trigger" data-toggle-visit-detail="' + id + '" aria-expanded="false">' +
@@ -931,37 +931,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
 
     content.querySelectorAll("[data-finish-visit]").forEach(function(button) {
-      button.addEventListener("click", function() {
+      button.addEventListener("click",function() {
         const panel = document.getElementById("visit-action-panel");
-        panel.innerHTML =
-          '<section class="hero actionform">' +
-            '<div class="eyebrow">Завершение визита</div>' +
-            '<h2 style="margin:8px 0 6px">' + esc(button.dataset.petName) + '</h2>' +
-            '<div class="smallmuted" style="margin-bottom:14px">Введи выполненные услуги и стоимость — по одной на строку.</div>' +
-            '<form id="finish-visit-form">' +
-              '<textarea class="formtextarea" id="finish-services" rows="4" required placeholder="Комплекс 3200&#10;Когти 300"></textarea>' +
-              '<button class="btn full" id="finish-save">Сохранить услуги и завершить</button>' +
-              '<button class="btn secondary full" type="button" id="finish-cancel">Отмена</button>' +
-            '</form>' +
-          '</section>';
-        document.getElementById("finish-cancel").addEventListener("click",function(){panel.innerHTML="";});
-        document.getElementById("finish-visit-form").addEventListener("submit",async function(event) {
-          event.preventDefault();
-          const saveButton = document.getElementById("finish-save");
-          const servicesText = document.getElementById("finish-services").value;
-          saveButton.disabled = true;
-          saveButton.textContent = "Сохраняю…";
-          try {
-            await api("/api/visits/" + button.dataset.finishVisit + "/finish", {
-              method: "POST",
-              body: JSON.stringify({servicesText:servicesText})
-            });
-            await renderToday();
-          } catch(error) {
-            showError(error);
-          }
-        });
-        panel.scrollIntoView({behavior:"smooth",block:"start"});
+        openVisitFinishForm(
+          Number(button.dataset.finishVisit),
+          Number(button.dataset.dogId),
+          button.dataset.petName || "Питомец",
+          panel,
+          function(){return renderToday();}
+        ).catch(showError);
       });
     });
   }
@@ -1723,7 +1701,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const duration = Number(item.actual_duration_minutes || 0);
         const earned = Number(item.earned || 0);
         return '<article class="history-card">' +
-          '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака"].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
+          '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
           '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
           '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
@@ -1735,7 +1713,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             : '<div class="smallmuted">Фотографий пока нет.</div>') +
           (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
           '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
-          (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
+          (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
           '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
         '</article>';
       }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
@@ -1794,46 +1772,16 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const article = button.closest(".history-card");
         const panel = article && article.querySelector(".visit-action-panel");
         if (!panel) return;
-        const appointmentId = Number(button.dataset.finishHistoryVisit);
-        panel.innerHTML =
-          '<section class="action-form">' +
-            '<div class="eyebrow">ЗАВЕРШЕНИЕ ВИЗИТА</div>' +
-            '<h2 style="margin:8px 0 6px">' + esc(button.dataset.petName) + '</h2>' +
-            '<div class="smallmuted" style="margin-bottom:14px">Внеси выполненные услуги и сумму — по одной на строку.</div>' +
-            '<form class="history-finish-form">' +
-              '<textarea class="formtextarea history-finish-services" rows="4" required placeholder="Комплекс 3200&#10;Когти 300"></textarea>' +
-              '<button class="btn full history-finish-save" type="submit">Сохранить услуги и завершить</button>' +
-              '<button class="btn secondary full history-finish-cancel" type="button">Отмена</button>' +
-            '</form>' +
-          '</section>';
-        panel.querySelector(".history-finish-cancel").addEventListener("click",function(){panel.innerHTML="";});
-        panel.querySelector(".history-finish-form").addEventListener("submit",async function(event) {
-          event.preventDefault();
-          const saveButton = panel.querySelector(".history-finish-save");
-          const servicesText = panel.querySelector(".history-finish-services").value;
-          saveButton.disabled = true;
-          saveButton.textContent = "Сохраняю…";
-          try {
-            await api("/api/visits/" + appointmentId + "/finish", {
-              method:"POST",
-              body:JSON.stringify({servicesText:servicesText})
-            });
-            await renderVisits();
-          } catch(error) {
-            saveButton.disabled = false;
-            saveButton.textContent = "Сохранить услуги и завершить";
-            let errorBox = panel.querySelector(".appointment-form-error");
-            if (!errorBox) {
-              errorBox = document.createElement("div");
-              errorBox.className = "appointment-form-error";
-              panel.querySelector(".history-finish-form").appendChild(errorBox);
-            }
-            errorBox.textContent = error.message || "Не удалось завершить визит.";
-            errorBox.style.display = "block";
-          }
-        });
+        openVisitFinishForm(
+          Number(button.dataset.finishHistoryVisit),
+          Number(button.dataset.dogId),
+          button.dataset.petName || "Питомец",
+          panel,
+          function(){return renderVisits();}
+        ).catch(showError);
       });
     });
+
     content.querySelectorAll("[data-open-pet]").forEach(function(button) {
       button.addEventListener("click",function() {
         renderPet(Number(button.dataset.openPet)).catch(showError);
