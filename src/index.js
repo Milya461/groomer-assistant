@@ -4966,28 +4966,28 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, id: Number(result.meta.last_row_id) }, 201);
     }
 
-    const coverPhotoImageMatch = path.match(/^\\/api\\/pet-cover-photos\\/(\\d+)\\/image$/);
+    const coverPhotoImageMatch = path.match(/^\/api\/pet-cover-photos\/(\d+)\/image$/);
     if (request.method === "GET" && coverPhotoImageMatch) {
       const photo = await env.DB.prepare("SELECT telegram_file_id FROM pet_cover_photos WHERE dog_id = ?")
         .bind(Number(coverPhotoImageMatch[1])).first();
       return readStoredPhotoResponse(env, photo?.telegram_file_id, "Главное фото питомца не найдено.", "Не удалось загрузить главное фото питомца.");
     }
 
-    const petPhotoImageMatch = path.match(/^\\/api\\/grooming-photos\\/(\\d+)\\/image$/);
+    const petPhotoImageMatch = path.match(/^\/api\/grooming-photos\/(\d+)\/image$/);
     if (request.method === "GET" && petPhotoImageMatch) {
       const photo = await env.DB.prepare("SELECT telegram_file_id FROM grooming_card_photos WHERE id = ?")
         .bind(Number(petPhotoImageMatch[1])).first();
       return readStoredPhotoResponse(env, photo?.telegram_file_id, "Фотография не найдена.", "Не удалось загрузить фотографию.");
     }
 
-    const visitPhotoImageMatch = path.match(/^\\/api\\/visit-photos\\/(\\d+)\\/image$/);
+    const visitPhotoImageMatch = path.match(/^\/api\/visit-photos\/(\d+)\/image$/);
     if (request.method === "GET" && visitPhotoImageMatch) {
       const photo = await env.DB.prepare("SELECT telegram_file_id FROM visit_photos WHERE id = ? AND photo_type = 'after'")
         .bind(Number(visitPhotoImageMatch[1])).first();
       return readStoredPhotoResponse(env, photo?.telegram_file_id, "Фотография визита не найдена.", "Не удалось загрузить фотографию визита.");
     }
 
-    const petCoverUploadMatch = path.match(/^\\/api\\/pets\\/(\\d+)\\/cover-photo$/);
+    const petCoverUploadMatch = path.match(/^\/api\/pets\/(\d+)\/cover-photo$/);
     if (request.method === "POST" && petCoverUploadMatch) {
       const petId = Number(petCoverUploadMatch[1]);
       const pet = await env.DB.prepare("SELECT id FROM dogs WHERE id = ? AND COALESCE(is_temporary, 0) = 0")
@@ -5012,7 +5012,7 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, petId, message: "Главное фото сохранено." }, 201);
     }
 
-    const petPhotosMatch = path.match(/^\\/api\\/pets\\/(\\d+)\\/grooming-photos$/);
+    const petPhotosMatch = path.match(/^\/api\/pets\/(\d+)\/grooming-photos$/);
     if (request.method === "POST" && petPhotosMatch) {
       const petId = Number(petPhotosMatch[1]);
       const pet = await env.DB.prepare("SELECT id, name, species, breed FROM dogs WHERE id = ? AND COALESCE(is_temporary, 0) = 0")
@@ -5035,7 +5035,7 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, petId, caption });
     }
 
-    const afterVisitPhotosMatch = path.match(/^\\/api\\/appointments\\/(\\d+)\\/after-photos$/);
+    const afterVisitPhotosMatch = path.match(/^\/api\/appointments\/(\d+)\/after-photos$/);
     if (request.method === "POST" && afterVisitPhotosMatch) {
       const appointmentId = Number(afterVisitPhotosMatch[1]);
       const appointment = await env.DB.prepare("SELECT id, status FROM appointments WHERE id = ?")
