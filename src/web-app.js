@@ -8,106 +8,197 @@ export const WEB_APP_HTML = String.raw`<!doctype html>
 <title>Pretty Dogs — Groomer Assistant</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{color-scheme:light;--ink:#111;--muted:#737373;--line:#e5e5e5;--soft:#f6f6f6;--white:#fff;--black:#111}
+:root{color-scheme:light;--ink:#111;--muted:#767676;--line:#e7e7e7;--soft:#f5f5f5;--white:#fff;--black:#111;--radius:16px}
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:var(--white);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-body{padding:0 0 env(safe-area-inset-bottom)}
-button,input{font:inherit}
+html,body{margin:0;min-height:100%;background:#fff;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{padding:0;overscroll-behavior-y:contain}
+button,input,textarea,select{font:inherit}
 button{cursor:pointer}
-.shell{max-width:840px;margin:0 auto;padding:0 18px 32px}
-header{padding:24px 0 22px;border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:11px;letter-spacing:.15em;font-weight:750}
-.brand .subbrand{font-weight:500;color:var(--muted);letter-spacing:.08em}
-h1{font-size:29px;line-height:1.15;letter-spacing:-.045em;margin:30px 0 6px;font-weight:750}
-.subtitle{font-size:13px;color:var(--muted)}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:18px 0 24px;padding:4px;background:#f1f1f1;border-radius:12px}
-.tab{border:0;background:transparent;color:#555;padding:11px 7px;border-radius:9px;font-size:13px;font-weight:650}
-.tab.active{background:#fff;color:#111;box-shadow:0 1px 3px #00000012}
-main{min-height:260px}
-.loading,.empty,.notice{padding:28px 18px;text-align:center;border:1px solid var(--line);border-radius:14px;color:var(--muted);font-size:14px}
-.notice{color:#222;text-align:left;line-height:1.55}
+button:focus-visible,[role=button]:focus-visible{outline:2px solid #111;outline-offset:3px}
+.shell{display:grid;grid-template-columns:238px minmax(0,1fr);min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:29px 17px 20px 22px;border-right:1px solid var(--line);background:#fff}
+.logo-lockup{display:flex;gap:11px;align-items:center;padding:0 9px 35px}
+.logo-mark{display:grid;place-items:center;width:38px;height:38px;background:#111;color:#fff;border-radius:12px;font-size:12px;font-weight:800;letter-spacing:-.06em}
+.logo-name{font-size:12px;font-weight:800;letter-spacing:.13em}
+.logo-caption{margin-top:5px;font-size:9px;color:#8b8b8b;letter-spacing:.12em}
+.nav-label{font-size:9px;letter-spacing:.16em;color:#929292;padding:0 10px 12px;font-weight:750}
+.side-nav{display:grid;gap:5px}
+.tab{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;color:#666;text-align:left;padding:13px 12px;border-radius:10px;font-size:12px;font-weight:650;transition:background .14s,color .14s}
+.tab-symbol{width:20px;flex:0 0 20px;font-size:18px;line-height:1;text-align:center;font-weight:400}
+.tab.active{background:#111;color:#fff}
+.sidebar-bottom{margin-top:auto;padding:16px 10px 4px;border-top:1px solid var(--line)}
+.statusline{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.04em;color:#858585}
+.status-dot{width:6px;height:6px;border-radius:50%;background:#111}
+.sidebar-footnote{font-size:10px;line-height:1.5;color:#a0a0a0;margin-top:10px}
+.app-main{min-width:0;width:100%;max-width:1260px;margin:0 auto;padding:0 46px 32px}
+.page-header{padding:33px 0 25px;border-bottom:1px solid var(--line)}
+.header-overline{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:9px;font-weight:750;letter-spacing:.15em;color:#8a8a8a;text-transform:uppercase}
+.header-date{font-size:10px;letter-spacing:.04em;color:#777;font-weight:500;text-transform:none}
+h1{font-size:37px;line-height:1.06;letter-spacing:-.055em;margin:26px 0 7px;font-weight:780}
+.subtitle{font-size:13px;line-height:1.5;color:var(--muted)}
+.mobile-nav{display:none}
+main{min-height:300px;padding-top:25px}
+.loading,.empty,.notice{padding:34px 20px;text-align:center;border:1px solid var(--line);border-radius:var(--radius);color:var(--muted);font-size:13px;line-height:1.5;background:#fff}
+.notice{color:#222;text-align:left;max-width:600px;line-height:1.65}
 .error{margin:10px 0;padding:12px 14px;border:1px solid #d5d5d5;border-radius:10px;font-size:13px}
-.hero{border:1px solid var(--line);border-radius:16px;padding:21px;margin-bottom:12px}
-.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.money{font-size:37px;letter-spacing:-.055em;font-weight:760;margin:9px 0 3px;font-variant-numeric:tabular-nums}
-.smallmuted{color:var(--muted);font-size:12px}
-.metricgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 25px}
-.metric{border:1px solid var(--line);border-radius:13px;padding:14px 13px;min-width:0}
-.metric .value{font-size:23px;font-weight:750;letter-spacing:-.04em;margin-bottom:5px}
-.metric .label{font-size:11px;color:var(--muted)}
-.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:25px 0 11px}
-h2{font-size:17px;letter-spacing:-.025em;margin:0;font-weight:750}
-.count{font-size:12px;color:var(--muted)}
+.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,.9fr);gap:14px;align-items:stretch}
+.hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:#fff;margin-bottom:14px}
+.hero.dark{background:#111;color:#fff;border-color:#111}
+.hero .eyebrow{color:#888}
+.hero.dark .eyebrow{color:#b7b7b7}
+.hero-heading{font-size:23px;font-weight:760;letter-spacing:-.045em;margin:12px 0 9px;line-height:1.16}
+.hero-desc{font-size:12px;line-height:1.55;color:#777;max-width:400px}
+.hero.dark .hero-desc{color:#b8b8b8}
+.hero-meta{display:flex;flex-wrap:wrap;gap:7px;margin-top:22px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #e6e6e6;border-radius:999px;font-size:10px;color:#555;background:#fff}
+.hero.dark .chip{border-color:#414141;background:#1d1d1d;color:#ededed}
+.eyebrow{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:750}
+.money{font-size:38px;letter-spacing:-.06em;font-weight:790;margin:12px 0 3px;font-variant-numeric:tabular-nums;line-height:1.1}
+.smallmuted{color:var(--muted);font-size:11px;line-height:1.5}
+.metricgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 30px}
+.metric{border:1px solid var(--line);border-radius:13px;padding:16px 15px;min-width:0;background:#fff}
+.metric .value{font-size:25px;font-weight:780;letter-spacing:-.05em;margin-bottom:8px;line-height:1}
+.metric .label{font-size:10px;color:var(--muted);line-height:1.3}
+.sectionhead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:27px 0 13px}
+h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
+.count{font-size:10px;color:var(--muted)}
 .list{border-top:1px solid var(--line)}
-.item{display:flex;align-items:center;gap:13px;padding:15px 2px;border-bottom:1px solid var(--line);min-width:0}
-.time{flex:0 0 51px;font-size:13px;font-weight:750;font-variant-numeric:tabular-nums}
+.item{display:flex;align-items:center;gap:13px;padding:16px 2px;border-bottom:1px solid var(--line);min-width:0}
+.time{flex:0 0 48px;font-size:12px;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .itembody{min-width:0;flex:1}
-.itemtitle{font-size:14px;font-weight:650;overflow-wrap:anywhere}
-.itemmeta{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.35}
-.status{font-size:10px;text-transform:uppercase;letter-spacing:.045em;border:1px solid #d8d8d8;padding:5px 7px;border-radius:6px;white-space:nowrap;color:#444}
-.btn{border:1px solid var(--black);background:var(--black);color:#fff;border-radius:10px;padding:12px 15px;font-size:13px;font-weight:700}
+.itemtitle{font-size:13px;font-weight:720;overflow-wrap:anywhere}
+.itemmeta{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45}
+.status{font-size:9px;letter-spacing:.02em;border:1px solid #dedede;padding:6px 8px;border-radius:7px;white-space:nowrap;color:#555;background:#fff}
+.btn{border:1px solid var(--black);background:var(--black);color:#fff;border-radius:10px;padding:12px 15px;font-size:12px;font-weight:720;transition:opacity .15s}
 .btn.secondary{background:#fff;color:#111;border-color:var(--line)}
-.btn.full{width:100%;margin-top:20px}
+.btn.full{width:100%;margin-top:15px}
 .btn:disabled{opacity:.5;cursor:default}
-.searchbar{display:flex;gap:8px;margin-bottom:15px}
-.searchbar input,.field input,.field textarea,.range{width:100%;border:1px solid var(--line);background:#fff;color:#111;border-radius:10px;padding:12px 13px;outline:none;font-size:14px}
-.searchbar input:focus,.field input:focus,.field textarea:focus{border-color:#777}
-.searchbar button{border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:0 16px;font-size:13px;font-weight:700}
-.petrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 1px;border-bottom:1px solid var(--line);cursor:pointer}
-.petrow:first-child{border-top:1px solid var(--line)}
-.petname{font-size:15px;font-weight:700}
-.petbreed{font-size:12px;color:var(--muted);margin-top:4px}
-.arrow{font-size:21px;color:#777}
-.back{border:0;padding:0;margin:0 0 19px;background:transparent;color:#555;font-size:13px}
-.detailtitle{font-size:25px;font-weight:760;letter-spacing:-.04em;margin:0 0 6px}
-.detailbreed{font-size:13px;color:var(--muted);margin-bottom:22px}
-.detailsection{padding:17px 0;border-top:1px solid var(--line)}
-.detailsection h3{font-size:12px;color:var(--muted);font-weight:750;letter-spacing:.09em;text-transform:uppercase;margin:0 0 12px}
-.detailrow{display:grid;grid-template-columns:42% 1fr;gap:14px;padding:8px 0;font-size:13px;line-height:1.45}
+.inlineaction{display:inline-block;margin-top:9px;padding:8px 11px;border:1px solid #d8d8d8;border-radius:8px;background:#fff;color:#111;font-size:10px;font-weight:750}
+.searchbar{display:flex;gap:8px;margin-bottom:18px}
+.searchbar input,.field input,.field textarea,.field select,.range{width:100%;border:1px solid var(--line);background:#fff;color:#111;border-radius:10px;padding:12px 13px;outline:none;font-size:13px}
+.searchbar input:focus,.field input:focus,.field textarea:focus,.field select:focus{border-color:#777}
+.searchbar button{border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:0 17px;font-size:12px;font-weight:700}
+.pet-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.pet-card{border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;min-width:0;background:#fff;transition:transform .16s,border-color .16s}
+.pet-card:hover{border-color:#bababa;transform:translateY(-2px)}
+.pet-cover{aspect-ratio:1.17;background:#f3f3f3;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.pet-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.pet-cover-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:31px;font-weight:800;letter-spacing:-.09em;color:#b6b6b6}
+.pet-cover-label{position:absolute;bottom:9px;left:9px;background:#fff;color:#111;border-radius:6px;padding:5px 7px;font-size:9px;font-weight:750}
+.pet-card-body{padding:13px}
+.petname{font-size:14px;font-weight:760;letter-spacing:-.025em;overflow-wrap:anywhere}
+.petbreed{font-size:10px;line-height:1.45;color:var(--muted);margin-top:5px;min-height:15px}
+.pet-foot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:13px;padding-top:10px;border-top:1px solid #eee;color:#999;font-size:9px}
+.arrow{font-size:17px;color:#777}
+.back{border:0;padding:0;margin:0 0 22px;background:transparent;color:#666;font-size:12px}
+.profile-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:end;margin-bottom:22px;padding:23px;border:1px solid var(--line);border-radius:var(--radius)}
+.detailtitle{font-size:32px;font-weight:790;letter-spacing:-.055em;margin:10px 0 8px;line-height:1.1}
+.detailbreed{font-size:12px;color:var(--muted);margin-bottom:0}
+.profile-mark{width:86px;height:86px;border-radius:12px;background:var(--soft);display:grid;place-items:center;overflow:hidden;font-size:24px;color:#aaa;font-weight:800;letter-spacing:-.08em}
+.profile-mark img{width:100%;height:100%;object-fit:cover}
+.detailsection{padding:20px 0;border-top:1px solid var(--line)}
+.detailsection h3{font-size:9px;color:var(--muted);font-weight:780;letter-spacing:.14em;text-transform:uppercase;margin:0 0 13px}
+.detailrow{display:grid;grid-template-columns:36% 1fr;gap:14px;padding:9px 0;font-size:12px;line-height:1.5}
 .detailrow .key{color:var(--muted)}
 .detailrow .val{white-space:pre-wrap;overflow-wrap:anywhere}
-.periods{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 17px}
-.pill{padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12px;color:#555}
+.periods{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 18px}
+.pill{padding:9px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:11px;color:#555}
 .pill.active{background:#111;border-color:#111;color:#fff}
-.earningrow{display:grid;grid-template-columns:1fr auto;gap:10px;padding:14px 1px;border-bottom:1px solid var(--line)}
-.earningname{font-size:13px;font-weight:650}
-.earningdate{font-size:11px;color:var(--muted);margin-top:5px}
-.earningamount{text-align:right;font-size:13px;font-weight:750;white-space:nowrap}
-.earningbase{font-size:11px;color:var(--muted);margin-top:5px}
-footer{border-top:1px solid var(--line);margin-top:30px;padding-top:15px;color:#999;font-size:10px;letter-spacing:.11em;display:flex;justify-content:space-between}
-.inlineaction{display:inline-block;margin-top:8px;padding:7px 10px;border:1px solid #d8d8d8;border-radius:8px;background:#fff;color:#111;font-size:11px;font-weight:700}
-.formtextarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;font-size:13px;line-height:1.5;color:#111;background:#fff}
-.cardform{margin-top:15px}
-.cardform .field{display:block;margin:12px 0}
-.petform{margin-top:14px}
-.petform .field{display:block;margin:12px 0}
-.petform .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-.petform .field input,.petform .field select{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;color:#111;font:inherit;font-size:14px}
-
-.cardform .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0 15px}
-.photo-tile{aspect-ratio:1;overflow:hidden;border-radius:8px;border:1px solid var(--line);background:var(--soft);display:flex;align-items:center;justify-content:center}
-.photo-tile img{width:100%;height:100%;object-fit:cover}
+.earning-overview{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.65fr);gap:12px}
+.earningrow{display:grid;grid-template-columns:1fr auto;gap:10px;padding:15px 1px;border-bottom:1px solid var(--line)}
+.earningname{font-size:12px;font-weight:700}
+.earningdate{font-size:10px;color:var(--muted);margin-top:5px}
+.earningamount{text-align:right;font-size:12px;font-weight:780;white-space:nowrap}
+.earningbase{font-size:10px;color:var(--muted);margin-top:5px}
+.photo-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 15px}
+.photo-tile{aspect-ratio:1;overflow:hidden;border-radius:9px;border:1px solid var(--line);background:var(--soft);display:flex;align-items:center;justify-content:center}
+.photo-tile img{width:100%;height:100%;object-fit:cover;display:block}
 .filelabel{display:inline-flex;position:relative;overflow:hidden;align-items:center;justify-content:center}
 .filelabel input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
-button:focus-visible{outline:2px solid #111;outline-offset:2px}
-@media(min-width:620px){.shell{padding-left:26px;padding-right:26px}header{padding-top:30px}h1{font-size:34px}.hero{padding:25px}.metricgrid{gap:12px}.metric{padding:17px}}
+.formtextarea{width:100%;min-height:95px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;font-size:12px;line-height:1.5;color:#111;background:#fff}
+.cardform,.petform{margin-top:14px}
+.cardform .field,.petform .field{display:block;margin:13px 0}
+.cardform .field span,.petform .field span{display:block;font-size:10px;color:var(--muted);margin-bottom:6px}
+.petform .field input,.petform .field select{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;color:#111;font:inherit;font-size:13px}
+.metricgrid.compact{margin-top:12px;margin-bottom:19px}
+.visits-date{font-size:10px;letter-spacing:.12em;color:#888;text-transform:uppercase;font-weight:750;margin:23px 0 6px}
+.history-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:9px 0;background:#fff}
+.history-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.history-name{font-size:13px;font-weight:760}
+.history-meta{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
+.history-time{text-align:right;font-size:12px;font-weight:760;white-space:nowrap}
+.history-procedures{font-size:11px;line-height:1.55;color:#555;margin-top:12px;padding-top:10px;border-top:1px solid #eee;white-space:pre-wrap}
+.action-form{padding:18px;border:1px solid var(--line);border-radius:13px;margin:17px 0}
+footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#a0a0a0;font-size:9px;letter-spacing:.12em;display:flex;justify-content:space-between}
+@media(max-width:980px){.shell{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding-left:13px;padding-right:12px}.app-main{padding-left:26px;padding-right:26px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
+@media(max-width:660px){
+  body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .shell{display:block;min-height:100vh}
+  .sidebar{display:none}
+  .app-main{padding:0 18px 18px}
+  .page-header{padding:23px 0 18px}
+  .header-overline{font-size:8px}
+  h1{font-size:31px;margin:21px 0 7px}
+  .subtitle{font-size:12px}
+  main{padding-top:19px;min-height:280px}
+  .mobile-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;z-index:20;bottom:0;left:0;right:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);gap:3px}
+  .mobile-nav .tab{display:flex;flex-direction:column;justify-content:center;gap:5px;padding:7px 2px;border-radius:9px;font-size:9px;text-align:center;align-items:center}
+  .mobile-nav .tab-symbol{font-size:17px;width:auto;flex:none}
+  .metricgrid{gap:7px;margin-bottom:24px}
+  .metric{padding:13px 10px;border-radius:12px}
+  .metric .value{font-size:22px}
+  .metric .label{font-size:9px}
+  .hero{padding:19px;border-radius:14px}
+  .hero-heading{font-size:21px}
+  .money{font-size:34px}
+  .dashboard-grid{gap:0}
+  .pet-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .pet-card{border-radius:12px}
+  .pet-cover{aspect-ratio:.98}
+  .pet-card-body{padding:10px}
+  .petname{font-size:13px}
+  .petbreed{font-size:10px}
+  .profile-hero{padding:17px;gap:12px}
+  .detailtitle{font-size:28px}
+  .profile-mark{width:70px;height:70px}
+  .detailrow{grid-template-columns:40% 1fr;font-size:11px;gap:9px}
+  .photo-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .earning-overview{grid-template-columns:1fr}
+  .history-card{padding:13px}
+  footer{margin-top:28px;font-size:8px}
+}
+@media(min-width:661px) and (max-width:820px){.app-main{padding-left:20px;padding-right:20px}.shell{grid-template-columns:185px minmax(0,1fr)}.logo-name{font-size:10px}.tab{gap:8px;padding:12px 9px}.tab-symbol{width:16px;flex-basis:16px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div class="shell">
-<header>
-  <div class="brand"><span>PRETTY DOGS</span><span class="subbrand">GROOMER ASSISTANT</span></div>
-  <h1 id="page-title">Сегодня</h1>
-  <div class="subtitle" id="page-subtitle">Рабочая панель</div>
-</header>
-<nav class="tabs" aria-label="Разделы">
-  <button class="tab active" data-screen="today">Сегодня</button>
-  <button class="tab" data-screen="pets">Питомцы</button>
-  <button class="tab" data-screen="earnings">Заработок</button>
-</nav>
-<main id="content"><div class="loading">Загружаю данные…</div></main>
-<footer><span>PRETTY DOGS</span><span>МИНИМУМ ЛИШНЕГО</span></footer>
+  <aside class="sidebar">
+    <div class="logo-lockup"><div class="logo-mark">PD</div><div><div class="logo-name">PRETTY DOGS</div><div class="logo-caption">GROOMER SPACE</div></div></div>
+    <div class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+    <nav class="side-nav" aria-label="Основная навигация">
+      <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Обзор</span></button>
+      <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
+      <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
+      <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Заработок</span></button>
+    </nav>
+    <div class="sidebar-bottom"><div class="statusline"><span class="status-dot"></span><span>Личное рабочее пространство</span></div><div class="sidebar-footnote">Все данные остаются в базе Pretty Dogs.</div></div>
+  </aside>
+  <div class="app-main">
+    <header class="page-header">
+      <div class="header-overline"><span>PRETTY DOGS / STUDIO</span><span class="header-date" id="header-date"></span></div>
+      <h1 id="page-title">Обзор</h1>
+      <div class="subtitle" id="page-subtitle">Твой рабочий день — в одном месте.</div>
+    </header>
+    <main id="content"><div class="loading">Загружаю данные…</div></main>
+    <footer><span>PRETTY DOGS · GROOMER SPACE</span><span>МИНИМУМ ЛИШНЕГО</span></footer>
+  </div>
+  <nav class="mobile-nav" aria-label="Основная навигация">
+    <button class="tab active" data-screen="today"><span class="tab-symbol">⌂</span><span>Обзор</span></button>
+    <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
+    <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
+    <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Доход</span></button>
+  </nav>
 </div>
 <script>
 (function(){
