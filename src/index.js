@@ -4715,14 +4715,14 @@ async function handleWebApi(request, env) {
       const targetDate = String(body.date || "");
       const targetTime = String(body.time || "");
       if (isNoCard) {
-        if (!noCardName) return webApiResponse({ error: "Укажи имя питомца для записи без карточки." }, 400);
+        if (!noCardName) return webApiResponse({ error: "Укажи имя нового питомца." }, 400);
         const options = getBreedVariantOptions(noCardBreed, "dog");
         if (options.requiresVariant && !options.options.some(option => option.value === noCardBreedVariant)) {
           return webApiResponse({ error: "Выбери размер или разновидность питомца для правильного прайса." }, 400);
         }
       } else {
         if (!Number.isSafeInteger(dogId) || dogId <= 0) {
-          return webApiResponse({ error: "Выбери питомца или вариант «Без карточки»." }, 400);
+          return webApiResponse({ error: "Выбери существующего питомца или создай карточку нового." }, 400);
         }
         const pet = await env.DB.prepare(`
           SELECT id FROM dogs
@@ -4780,7 +4780,7 @@ async function handleWebApi(request, env) {
       const targetDate = String(body.date || "");
       const targetTime = String(body.time || "");
       if (isNoCard && !noCardName) {
-        return webApiResponse({ error: "Укажи имя питомца для записи без карточки." }, 400);
+        return webApiResponse({ error: "Укажи имя нового питомца." }, 400);
       }
       const appointment = await env.DB.prepare(`
         SELECT id, dog_id, status, planned_duration_minutes
@@ -4798,7 +4798,7 @@ async function handleWebApi(request, env) {
         }
       } else {
         if (!Number.isSafeInteger(dogId) || dogId <= 0) {
-          return webApiResponse({ error: "Выбери питомца или вариант «Без карточки»." }, 400);
+          return webApiResponse({ error: "Выбери существующего питомца или создай карточку нового." }, 400);
         }
         const pet = await env.DB.prepare(`
           SELECT id FROM dogs
