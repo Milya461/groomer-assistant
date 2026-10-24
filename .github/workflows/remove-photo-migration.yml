@@ -1,0 +1,51 @@
+name: Remove obsolete photo migration UI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  remove-photo-migration:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Remove obsolete migration UI
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('src/web-app.js')
+          text = path.read_text(encoding='utf-8')
+          original = text
+
+          # Remove migration-specific CSS.
+          text = re.sub(r'\\n\\.photo-migration-card\\{.*?\\}\\n\\.photo-migration-card h3\\{.*?\\}\\n\\.photo-migration-card p\\{.*?\\}\\n\\.photo-migration-card \\.btn\\{.*?\\}\\n\\.photo-migration-status\\{.*?\\}', '', text, count=1, flags=re.S)
+
+          # Remove the migration controls function and its call.
+          text = re.sub(r'\\n  async function renderPhotoMigrationControls\\(\\) \\{.*?\\n  \\}\\n\\n  function visitDetailsHtml', '\\n  function visitDetailsHtml', text, count=1, flags=re.S)
+          text = text.replace('      \'<div id=\\"photo-migration-slot\\"></div>\' +\\n', '')
+          text = text.replace('\\n    renderPhotoMigrationControls();\\n', '\\n')
+
+          if text == original:
+              raise SystemExit('No changes made; expected photo migration UI was not found.')
+          if 'photo-migration' in text or 'renderPhotoMigrationControls' in text:
+              raise SystemExit('Obsolete photo migration UI references remain.')
+
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit and remove this temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/web-app.js .github/workflows/remove-photo-migration.yml
+          git rm .github/workflows/remove-photo-migration.yml
+          git commit -m 'Remove obsolete Telegram photo migration UI'
+          git push
