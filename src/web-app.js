@@ -575,12 +575,17 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           return;
         }
 
+        const isPending = ["scheduled", "waiting"].includes(button.dataset.visitStatus);
+        const fieldLabel = isPending ? "ВРЕМЯ ЗАПИСИ" : "ФАКТИЧЕСКОЕ ВРЕМЯ НАЧАЛА";
+        const helperText = isPending
+          ? "Изменится запланированное время визита."
+          : "Исправь фактическое время, когда визит действительно начался.";
         slot.dataset.open = "1";
         const currentTime = String(button.dataset.currentStartTime || "").slice(0, 5);
         slot.innerHTML =
           '<form class="appointment-form start-time-editor-form" style="padding:12px;margin:10px 0">' +
-            '<div class="smallmuted" style="margin-bottom:9px">Исправь фактическое время, когда начался визит.</div>' +
-            '<label class="field"><span>ВРЕМЯ НАЧАЛА</span><input name="startTime" type="time" value="' + esc(currentTime) + '" required></label>' +
+            '<div class="smallmuted" style="margin-bottom:9px">' + helperText + '</div>' +
+            '<label class="field"><span>' + fieldLabel + '</span><input name="startTime" type="time" value="' + esc(currentTime) + '" required></label>' +
             '<div class="appointment-form-error" style="display:none"></div>' +
             '<div class="appointment-form-actions" style="margin-top:10px">' +
               '<button type="submit" class="btn">Сохранить</button>' +
@@ -635,20 +640,25 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const petBreedLabel = [item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ");
     const petLabel = item.name + (petBreedLabel ? " · " + petBreedLabel : "");
     const id = Number(item.id);
+    const isPending = item.status === "scheduled" || item.status === "waiting";
     let action = "";
-    if (item.status === "scheduled" || item.status === "waiting") {
+    let editTimeAction = "";
+
+    if (isPending) {
       action = '<button class="inlineaction primary-action" data-start-visit="' + id + '">▶ Начать визит</button>';
+      editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время записи</button>';
     } else if (item.status === "in_progress") {
-      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>' +
-        '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '">Изменить время начала</button>' +
-        '<div data-start-time-editor-slot="' + id + '"></div>';
+      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
+      editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
     }
+
     return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
       '<button type="button" class="visit-record-trigger" data-toggle-visit-detail="' + id + '" aria-expanded="false">' +
         '<span class="itemtitle">' + esc(petLabel) + '</span>' +
         '<span class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</span>' +
         '<span class="visit-record-hint">Открыть запись · услуги ↓</span>' +
-      '</button>' + action +
+      '</button>' + action + editTimeAction +
+      (editTimeAction ? '<div data-start-time-editor-slot="' + id + '"></div>' : '') +
       '<div class="visit-detail-panel" id="visit-detail-' + id + '" hidden></div>' +
     '</div></div>';
   }
@@ -1880,7 +1890,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         return '<article class="history-card">' +
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
-          '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '">Изменить время начала</button>' +
+          '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>' +
           '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
           '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
           '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
