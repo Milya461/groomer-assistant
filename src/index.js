@@ -4759,7 +4759,13 @@ async function handleWebApi(request, env) {
         INSERT OR IGNORE INTO assistant_appointment_state (appointment_id)
         VALUES (?)
       `).bind(appointmentId).run();
-      return webApiResponse({ ok: true, id: appointmentId, message: "Запись добавлена." }, 201);
+      return webApiResponse({
+        ok: true,
+        id: appointmentId,
+        petId: dogId,
+        petCardSaved: isNoCard,
+        message: isNoCard ? "Запись добавлена, карточка питомца сохранена." : "Запись добавлена."
+      }, 201);
     }
 
     const editAppointmentMatch = path.match(/^\/api\/appointments\/(\d+)$/);
@@ -4858,7 +4864,13 @@ async function handleWebApi(request, env) {
             planned_end_at = NULL, updated_at = CURRENT_TIMESTAMP
         WHERE appointment_id = ?
       `).bind(appointmentId).run();
-      return webApiResponse({ ok: true, id: appointmentId, message: "Запись обновлена." });
+      return webApiResponse({
+        ok: true,
+        id: appointmentId,
+        petId: dogId,
+        petCardSaved: isNoCard,
+        message: isNoCard ? "Запись обновлена, карточка питомца сохранена." : "Запись обновлена."
+      });
     }
 
     if (request.method === "POST" && path === "/api/work-shifts") {
