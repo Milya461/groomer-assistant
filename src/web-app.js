@@ -429,6 +429,70 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       console.error("Could not load grooming photo:", error);
     }
   }
+  async function preparePhotoForStorage(file) {
+    const maxStoredFileBytes = 1300000;
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (file.size <= maxStoredFileBytes && supportedTypes.includes(String(file.type || "").toLowerCase())) {
+      return file;
+    }
+
+    let source = null;
+    let bitmap = null;
+    let objectUrl = "";
+    try {
+      if (typeof createImageBitmap === "function") {
+        bitmap = await createImageBitmap(file);
+        source = bitmap;
+      } else {
+        objectUrl = URL.createObjectURL(file);
+        source = await new Promise(function(resolve, reject) {
+          const image = new Image();
+          image.onload = function(){resolve(image);};
+          image.onerror = function(){reject(new Error("Не удалось открыть изображение для уменьшения."));};
+          image.src = objectUrl;
+        });
+      }
+
+      const originalWidth = Number(source.width || source.naturalWidth || 0);
+      const originalHeight = Number(source.height || source.naturalHeight || 0);
+      if (!originalWidth || !originalHeight) throw new Error("Не удалось определить размер фотографии.");
+
+      let maxDimension = 1600;
+      const qualities = [0.84, 0.76, 0.68, 0.60, 0.52];
+      for (let attempt = 0; attempt < 10; attempt++) {
+        if (attempt > 0 && attempt % qualities.length === 0) maxDimension = Math.max(720, Math.round(maxDimension * 0.82));
+        const scale = Math.min(1, maxDimension / Math.max(originalWidth, originalHeight));
+        const width = Math.max(1, Math.round(originalWidth * scale));
+        const height = Math.max(1, Math.round(originalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Не удалось подготовить фотографию.");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(source, 0, 0, width, height);
+        const quality = qualities[attempt % qualities.length];
+        const blob = await new Promise(function(resolve) {
+          canvas.toBlob(resolve, "image/jpeg", quality);
+        });
+        if (blob && blob.size <= maxStoredFileBytes) {
+          return new File([blob], "photo-" + Date.now() + ".jpg", {
+            type: "image/jpeg",
+            lastModified: Date.now()
+          });
+        }
+      }
+      throw new Error("Не удалось уменьшить фотографию до нужного размера. Попробуй другое изображение.");
+    } catch(error) {
+      if (file.size <= maxStoredFileBytes && String(file.type || "").startsWith("image/")) return file;
+      throw error;
+    } finally {
+      if (bitmap && typeof bitmap.close === "function") bitmap.close();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
   async function api(path, options) {
     const opts = options || {};
     const headers = Object.assign({},opts.headers || {},authHeaders());
@@ -1608,7 +1672,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         coverPhotoInput.disabled = true;
         try {
           const formData = new FormData();
-          formData.append("photo",imageFile,imageFile.name);
+          const preparedPhoto = await preparePhotoForStorage(imageFile);
+          formData.append("photo", preparedPhoto, preparedPhoto.name);
           await api("/api/pets/" + id + "/cover-photo",{
             method:"POST",
             body:formData
@@ -1637,7 +1702,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         photoInput.disabled = true;
         try {
           const formData = new FormData();
-          formData.append("photo",imageFile,imageFile.name);
+          const preparedPhoto = await preparePhotoForStorage(imageFile);
+          formData.append("photo", preparedPhoto, preparedPhoto.name);
           await api("/api/pets/" + id + "/grooming-photos",{
             method:"POST",
             body:formData
@@ -1706,7 +1772,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             input.disabled = true;
             try {
               const formData = new FormData();
-              formData.append("photo", imageFile, imageFile.name);
+              const preparedPhoto = await preparePhotoForStorage(imageFile);
+          formData.append("photo", preparedPhoto, preparedPhoto.name);
               await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
                 method:"POST",
                 body:formData
@@ -1793,7 +1860,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         input.disabled = true;
         try {
           const formData = new FormData();
-          formData.append("photo",imageFile,imageFile.name);
+          const preparedPhoto = await preparePhotoForStorage(imageFile);
+          formData.append("photo", preparedPhoto, preparedPhoto.name);
           await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
             method:"POST",
             body:formData
