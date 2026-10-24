@@ -4300,10 +4300,6 @@ async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId 
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(targetTime)) {
     return { error: "Укажи время в формате ЧЧ:ММ.", status: 400 };
   }
-  if (targetDate < localDate() || (targetDate === localDate() && targetTime <= localTime())) {
-    return { error: "Нельзя записать питомца на прошедшие дату или время.", status: 400 };
-  }
-
   const shift = await env.DB.prepare(`
     SELECT start_time, end_time
     FROM assistant_work_shifts
