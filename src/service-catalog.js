@@ -315,7 +315,8 @@ export function resolveServiceSelection(pet, selections) {
       if (!sizeChoice) return { error: "Выбери размер для дополнительной услуги.", status: 400 };
       label += " · " + sizeChoice.label.toLowerCase();
     }
-    if (/когт|коготк|параанальн|чаев/i.test(label)) rate = 100;
+    // Services added inside a booked visit use the standard 35% rate.
+    // The special 100% rates are applied only by rateForUnscheduled for standalone entries.
     resolved.push({ id: source.id, label, amount: Math.round(amount * 100) / 100, rate });
   }
   const baseCount = resolved.filter(service => service.id.startsWith("groom:")).length;
