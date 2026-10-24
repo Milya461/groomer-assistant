@@ -906,6 +906,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="smallmuted">Выбери питомца с карточкой или укажи данные для разовой записи без карточки.</div>' +
         '<form id="appointment-edit-form">' +
           '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
+            '<option value="" disabled' + (!appointment ? ' selected' : '') + '>Выбери питомца</option>' +
+            '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Без карточки</option>' +
             pets.map(function(pet) {
               const selected = !noCardAppointment && Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
               const variant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0
@@ -913,7 +915,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
                 : '';
               return '<option value="' + Number(pet.id) + '"' + selected + '>' + esc(pet.name) + (pet.breed ? ' · ' + esc(pet.breed) : '') + variant + '</option>';
             }).join("") +
-            '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Без карточки</option>' +
           '</select></label>' +
           '<div id="appointment-no-card-fields" style="display:none">' +
             '<label class="field"><span>ИМЯ ПИТОМЦА</span><input name="noCardName" maxlength="100" placeholder="Например, Сайя" value="' + esc(noCardName) + '" disabled></label>' +
