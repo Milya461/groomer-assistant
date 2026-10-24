@@ -641,6 +641,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const petLabel = item.name + (petBreedLabel ? " · " + petBreedLabel : "");
     const id = Number(item.id);
     const isPending = item.status === "scheduled" || item.status === "waiting";
+    const displayedTime = isPending
+      ? item.appointment_time
+      : (item.actual_start_time || item.appointment_time);
     let action = "";
     let editTimeAction = "";
 
@@ -654,7 +657,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
     }
 
-    return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
+    return '<div class="item"><div class="time">' + esc(displayedTime || "—") + '</div><div class="itembody">' +
       '<button type="button" class="visit-record-trigger" data-toggle-visit-detail="' + id + '" aria-expanded="false">' +
         '<span class="itemtitle">' + esc(petLabel) + '</span>' +
         '<span class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</span>' +
