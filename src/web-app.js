@@ -956,29 +956,40 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     slot.innerHTML = '<div class="loading">Загружаю питомцев…</div>';
     const petsData = await api("/api/pets");
     const pets = petsData.pets || [];
-    if (!pets.length) {
-      slot.innerHTML = '<div class="notice">Сначала добавь питомца в разделе «Питомцы», затем можно будет создать запись.</div>';
-      return;
-    }
     const editing = !!appointment;
+    const noCardAppointment = editing && Number(appointment.is_temporary || 0) === 1;
     const dateValue = appointment
       ? appointment.appointment_date
       : defaultDate || (currentScreen === "calendar" ? calendarSelectedDate : moscowISODate());
     const timeValue = appointment
       ? appointment.appointment_time
       : selectedShift ? selectedShift.start_time : "10:00";
+    const noCardBreed = noCardAppointment ? String(appointment.breed || "") : "";
+    const noCardName = noCardAppointment ? String(appointment.name || "") : "";
+    const noCardBreedVariant = noCardAppointment ? String(appointment.breed_variant || "") : "";
+
     slot.innerHTML =
       '<section class="appointment-form">' +
         '<div class="eyebrow">' + (editing ? 'РЕДАКТИРОВАНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ') + '</div>' +
         '<h2>' + (editing ? 'Изменить запись' : 'Добавить запись') + '</h2>' +
-        '<div class="smallmuted">Выбери питомца, рабочую дату и свободное время. Запись можно будет изменить позже.</div>' +
+        '<div class="smallmuted">Выбери питомца с карточкой или укажи данные для разовой записи без карточки.</div>' +
         '<form id="appointment-edit-form">' +
           '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
             pets.map(function(pet) {
-              const selected = Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
-              return '<option value="' + Number(pet.id) + '"' + selected + '>' + esc(pet.name) + (pet.breed ? ' · ' + esc(pet.breed) : '') + '</option>';
+              const selected = !noCardAppointment && Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
+              const variant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0
+                ? ' · ' + esc(pet.breed_variant)
+                : '';
+              return '<option value="' + Number(pet.id) + '"' + selected + '>' + esc(pet.name) + (pet.breed ? ' · ' + esc(pet.breed) : '') + variant + '</option>';
             }).join("") +
+            '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Без карточки</option>' +
           '</select></label>' +
+          '<div id="appointment-no-card-fields" style="display:none">' +
+            '<label class="field"><span>ИМЯ ПИТОМЦА</span><input name="noCardName" maxlength="100" placeholder="Например, Сайя" value="' + esc(noCardName) + '" disabled></label>' +
+            '<label class="field"><span>ПОРОДА (НЕОБЯЗАТЕЛЬНО)</span><input name="noCardBreed" maxlength="120" placeholder="Например, шпиц" value="' + esc(noCardBreed) + '" disabled></label>' +
+            '<label class="field" id="appointment-no-card-variant-field" style="display:none"><span id="appointment-no-card-variant-label">Размер / разновидность</span><select name="noCardBreedVariant" disabled></select><div class="breed-variant-help">Для правильного выбора услуг по прайсу.</div></label>' +
+            '<div class="calendar-time-help">Карточка питомца не создаётся. Данные сохранятся только для этой записи и её истории.</div>' +
+          '</div>' +
           '<label class="field"><span>ДАТА</span><input name="date" type="date" min="' + moscowISODate() + '" value="' + esc(dateValue) + '" required></label>' +
           '<label class="field"><span>ВРЕМЯ</span><input name="time" type="time" value="' + esc(timeValue) + '" required></label>' +
           '<div class="calendar-time-help">Записи создаются только на даты, отмеченные рабочими в календаре, и в пределах времени смены. Одно время нельзя занять двумя записями.</div>' +
@@ -989,21 +1000,109 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '</div>' +
         '</form>' +
       '</section>';
+
+    const form = document.getElementById("appointment-edit-form");
+    const dogSelect = form.elements.dogId;
+    const noCardFields = document.getElementById("appointment-no-card-fields");
+    const noCardNameInput = form.elements.noCardName;
+    const noCardBreedInput = form.elements.noCardBreed;
+    const variantField = document.getElementById("appointment-no-card-variant-field");
+    const variantLabel = document.getElementById("appointment-no-card-variant-label");
+    const variantSelect = form.elements.noCardBreedVariant;
+    let variantRequest = 0;
+    let previousVariantBreed = noCardBreed;
+    let initialVariantValue = noCardBreedVariant;
+
+    async function syncNoCardVariant(preserveCurrent) {
+      const requestId = ++variantRequest;
+      if (dogSelect.value !== "none" || !String(noCardBreedInput.value || "").trim()) {
+        variantField.style.display = "none";
+        variantSelect.disabled = true;
+        variantSelect.required = false;
+        variantSelect.innerHTML = "";
+        return;
+      }
+      const breed = String(noCardBreedInput.value || "").trim();
+      const data = await api("/api/breed-variants?breed=" + encodeURIComponent(breed) + "&species=dog");
+      if (requestId !== variantRequest || dogSelect.value !== "none") return;
+      if (!data.requiresVariant) {
+        variantField.style.display = "none";
+        variantSelect.disabled = true;
+        variantSelect.required = false;
+        variantSelect.innerHTML = "";
+        previousVariantBreed = breed;
+        initialVariantValue = "";
+        return;
+      }
+      const keepExisting = !!preserveCurrent && breed === previousVariantBreed;
+      const candidate = keepExisting
+        ? (String(variantSelect.value || initialVariantValue || data.value || ""))
+        : "";
+      variantLabel.textContent = data.label || "Размер / разновидность";
+      variantSelect.innerHTML = '<option value="">Выбери размер / разновидность</option>' +
+        (data.options || []).map(function(option) {
+          return '<option value="' + esc(option.value) + '">' + esc(option.label) + '</option>';
+        }).join("");
+      variantSelect.disabled = false;
+      variantSelect.required = true;
+      variantField.style.display = "block";
+      variantSelect.value = (data.options || []).some(function(option){return option.value === candidate;})
+        ? candidate
+        : "";
+      previousVariantBreed = breed;
+      initialVariantValue = "";
+    }
+
+    function syncNoCardFields() {
+      const active = dogSelect.value === "none";
+      noCardFields.style.display = active ? "block" : "none";
+      noCardNameInput.disabled = !active;
+      noCardNameInput.required = active;
+      noCardBreedInput.disabled = !active;
+      if (!active) {
+        variantField.style.display = "none";
+        variantSelect.disabled = true;
+        variantSelect.required = false;
+      } else {
+        syncNoCardVariant(true).catch(showError);
+      }
+    }
+
+    dogSelect.addEventListener("change",syncNoCardFields);
+    noCardBreedInput.addEventListener("change",function() {
+      initialVariantValue = "";
+      syncNoCardVariant(false).catch(showError);
+    });
+    noCardBreedInput.addEventListener("blur",function() {
+      if (dogSelect.value === "none") syncNoCardVariant(true).catch(showError);
+    });
     document.getElementById("appointment-form-cancel").addEventListener("click",function(){slot.innerHTML="";});
-    document.getElementById("appointment-edit-form").addEventListener("submit",async function(event) {
+    syncNoCardFields();
+
+    form.addEventListener("submit",async function(event) {
       event.preventDefault();
-      const form = event.currentTarget;
-      const body = {
-        dogId:Number(form.elements.dogId.value),
-        date:form.elements.date.value,
-        time:form.elements.time.value
-      };
       const saveButton = document.getElementById("appointment-form-save");
       const errorBox = document.getElementById("appointment-form-error");
       saveButton.disabled = true;
       saveButton.textContent = "Сохраняю…";
       errorBox.style.display = "none";
       try {
+        if (dogSelect.value === "none") {
+          const name = String(noCardNameInput.value || "").trim();
+          if (!name) throw new Error("Укажи имя питомца для записи без карточки.");
+          await syncNoCardVariant(true);
+          if (variantField.style.display !== "none" && !variantSelect.value) {
+            throw new Error("Выбери размер или разновидность питомца для правильного прайса.");
+          }
+        }
+        const body = {
+          dogId: dogSelect.value === "none" ? "none" : Number(dogSelect.value),
+          noCardName: String(noCardNameInput.value || "").trim(),
+          noCardBreed: String(noCardBreedInput.value || "").trim(),
+          noCardBreedVariant: String(variantSelect.value || ""),
+          date: form.elements.date.value,
+          time: form.elements.time.value
+        };
         await api(editing ? "/api/appointments/" + Number(appointment.id) : "/api/appointments", {
           method:editing ? "PUT" : "POST",
           body:JSON.stringify(body)
