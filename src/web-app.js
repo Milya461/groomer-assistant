@@ -816,7 +816,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const correction = total - selectedSum;
         const selectedEarned = services.reduce(function(sum, service) {
           const amount = Number.isFinite(service.amount) ? service.amount : 0;
-          const rate = /когт|коготк|параанальн|чаев/i.test(service.label) ? 100 : Number(service.rate || 35);
+          // Inside a booked visit every selected service uses the catalog rate (normally 35%).
+          // 100% rates apply only to standalone services added without a visit.
+          const rate = Number(service.rate || 35);
           return sum + Math.round(amount * rate) / 100;
         },0);
         return Math.round((selectedEarned + Math.round(correction * 35) / 100) * 100) / 100;
