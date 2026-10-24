@@ -986,7 +986,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '<label class="field" id="appointment-no-card-variant-field" style="display:none"><span id="appointment-no-card-variant-label">Размер / разновидность</span><select name="noCardBreedVariant" disabled></select><div class="breed-variant-help">Для правильного выбора услуг по прайсу.</div></label>' +
             '<div class="calendar-time-help">После сохранения карточка нового питомца появится в разделе «Питомцы». В следующих визитах её можно будет выбрать из списка.</div>' +
           '</div>' +
-          '<label class="field"><span>ДАТА</span><input name="date" type="date" min="' + moscowISODate() + '" value="' + esc(dateValue) + '" required></label>' +
+          '<label class="field"><span>ДАТА</span><input name="date" type="date" value="' + esc(dateValue) + '" required></label>' +
           '<label class="field"><span>ВРЕМЯ</span><input name="time" type="time" value="' + esc(timeValue) + '" required></label>' +
           '<div class="calendar-time-help">Записи создаются только на даты, отмеченные рабочими в календаре, и в пределах времени смены. Одно время нельзя занять двумя записями.</div>' +
           '<div class="appointment-form-error" id="appointment-form-error"></div>' +
