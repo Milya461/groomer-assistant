@@ -967,11 +967,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<section class="appointment-form">' +
         '<div class="eyebrow">' + (editing ? 'РЕДАКТИРОВАНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ') + '</div>' +
         '<h2>' + (editing ? 'Изменить запись' : 'Добавить запись') + '</h2>' +
-        '<div class="smallmuted">Выбери питомца с карточкой или укажи данные для разовой записи без карточки.</div>' +
+        '<div class="smallmuted">Выбери существующего питомца или добавь нового — его карточка сохранится для следующих визитов.</div>' +
         '<form id="appointment-edit-form">' +
           '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
             '<option value="" disabled' + (!appointment ? ' selected' : '') + '>Выбери питомца</option>' +
-            '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Без карточки</option>' +
+            '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Новый питомец — создать карточку</option>' +
             pets.map(function(pet) {
               const selected = !noCardAppointment && Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
               const variant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0
@@ -984,7 +984,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '<label class="field"><span>ИМЯ ПИТОМЦА</span><input name="noCardName" maxlength="100" placeholder="Например, Сайя" value="' + esc(noCardName) + '" disabled></label>' +
             '<label class="field"><span>ПОРОДА (НЕОБЯЗАТЕЛЬНО)</span><input name="noCardBreed" maxlength="120" placeholder="Например, шпиц" value="' + esc(noCardBreed) + '" disabled></label>' +
             '<label class="field" id="appointment-no-card-variant-field" style="display:none"><span id="appointment-no-card-variant-label">Размер / разновидность</span><select name="noCardBreedVariant" disabled></select><div class="breed-variant-help">Для правильного выбора услуг по прайсу.</div></label>' +
-            '<div class="calendar-time-help">Карточка питомца не создаётся. Данные сохранятся только для этой записи и её истории.</div>' +
+            '<div class="calendar-time-help">После сохранения карточка нового питомца появится в разделе «Питомцы». В следующих визитах её можно будет выбрать из списка.</div>' +
           '</div>' +
           '<label class="field"><span>ДАТА</span><input name="date" type="date" min="' + moscowISODate() + '" value="' + esc(dateValue) + '" required></label>' +
           '<label class="field"><span>ВРЕМЯ</span><input name="time" type="time" value="' + esc(timeValue) + '" required></label>' +
@@ -1085,7 +1085,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       try {
         if (dogSelect.value === "none") {
           const name = String(noCardNameInput.value || "").trim();
-          if (!name) throw new Error("Укажи имя питомца для записи без карточки.");
+          if (!name) throw new Error("Укажи имя нового питомца.");
           await syncNoCardVariant(true);
           if (variantField.style.display !== "none" && !variantSelect.value) {
             throw new Error("Выбери размер или разновидность питомца для правильного прайса.");
