@@ -5245,6 +5245,46 @@ async function handleWebApi(request, env) {
       });
     }
 
+    if (request.method === "POST" && path === "/api/earnings/manual") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать данные услуги." }, 400);
+      }
+      const description = String(body.description || "").trim().slice(0, 120);
+      const rawAmount = Number(body.amount);
+      if (!description) {
+        return webApiResponse({ error: "Укажи название услуги." }, 400);
+      }
+      if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 100000) {
+        return webApiResponse({ error: "Стоимость должна быть больше 0 и не превышать 100 000 ₽." }, 400);
+      }
+      const amount = Math.round(rawAmount * 100) / 100;
+      const rate = rateForUnscheduled(description);
+      const earned = Math.round(amount * rate) / 100;
+      await env.DB.prepare(`
+        INSERT INTO earnings_entries (
+          service_date, description, amount, rate, earned, source, source_id
+        ) VALUES (?, ?, ?, ?, ?, 'plus', ?)
+      `).bind(
+        date,
+        description,
+        amount,
+        rate,
+        earned,
+        crypto.randomUUID()
+      ).run();
+      return webApiResponse({
+        ok: true,
+        serviceDate: date,
+        description,
+        amount,
+        rate,
+        earned
+      });
+    }
+
     if (request.method === "GET" && path === "/api/earnings") {
       const range = url.searchParams.get("range") || "today";
       let start = date;
