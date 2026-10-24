@@ -5554,7 +5554,7 @@ export default {
         theme_color: "#ffffff",
         icons: [
           {
-            src: "/apple-touch-icon-v1.png",
+            src: "/apple-touch-icon-v2.png",
             sizes: "180x180",
             type: "image/png",
             purpose: "any"
@@ -5571,9 +5571,9 @@ export default {
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/apple-touch-icon-v1.png") {
+    if (request.method === "GET" && url.pathname === "/apple-touch-icon-v2.png") {
       const asset = await fetch(
-        "https://raw.githubusercontent.com/Milya461/groomer-assistant/d5f9119d4f26820f74418937642e51fa1a971e3a/icons/apple-touch-icon.png"
+        "https://raw.githubusercontent.com/Milya461/groomer-assistant/bc9693383919e15c3bafba009b45cd4a7d3fdb00/icons/apple-touch-icon.png"
       );
       if (!asset.ok) {
         return new Response("App icon unavailable.", {
