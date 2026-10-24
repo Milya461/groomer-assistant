@@ -650,6 +650,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     } else if (item.status === "in_progress") {
       action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
       editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
+    } else if (item.status === "completed") {
+      editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
     }
 
     return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
@@ -1897,7 +1899,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         return '<article class="history-card">' +
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
-          '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>' +
+          '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
           '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
           '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
           '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
