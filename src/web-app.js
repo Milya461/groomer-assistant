@@ -562,6 +562,75 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   function statusText(status) {
     return ({scheduled:"Запланирован",waiting:"Ожидаем",in_progress:"В работе",completed:"Завершён",cancelled:"Отменён",rescheduled:"Перенесён",skipped:"Пропущен"})[status] || status || "—";
   }
+  function bindStartTimeEditorButtons(container, afterSave) {
+    container.querySelectorAll("[data-edit-start-time]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        const appointmentId = Number(button.dataset.editStartTime);
+        const slot = container.querySelector('[data-start-time-editor-slot="' + appointmentId + '"]');
+        if (!slot) return;
+
+        if (slot.dataset.open === "1") {
+          slot.innerHTML = "";
+          slot.dataset.open = "";
+          return;
+        }
+
+        slot.dataset.open = "1";
+        const currentTime = String(button.dataset.currentStartTime || "").slice(0, 5);
+        slot.innerHTML =
+          '<form class="appointment-form start-time-editor-form" style="padding:12px;margin:10px 0">' +
+            '<div class="smallmuted" style="margin-bottom:9px">Исправь фактическое время, когда начался визит.</div>' +
+            '<label class="field"><span>ВРЕМЯ НАЧАЛА</span><input name="startTime" type="time" value="' + esc(currentTime) + '" required></label>' +
+            '<div class="appointment-form-error" style="display:none"></div>' +
+            '<div class="appointment-form-actions" style="margin-top:10px">' +
+              '<button type="submit" class="btn">Сохранить</button>' +
+              '<button type="button" class="btn secondary" data-start-time-cancel>Отмена</button>' +
+            '</div>' +
+          '</form>';
+
+        const form = slot.querySelector("form");
+        const input = form.elements.startTime;
+        const saveButton = form.querySelector('button[type="submit"]');
+        const cancelButton = form.querySelector("[data-start-time-cancel]");
+        const errorBox = form.querySelector(".appointment-form-error");
+
+        cancelButton.addEventListener("click", function() {
+          slot.innerHTML = "";
+          slot.dataset.open = "";
+        });
+
+        form.addEventListener("submit", async function(event) {
+          event.preventDefault();
+          const startTime = String(input.value || "").trim();
+          if (!startTime) {
+            errorBox.textContent = "Укажи время начала визита.";
+            errorBox.style.display = "block";
+            return;
+          }
+
+          saveButton.disabled = true;
+          saveButton.textContent = "Сохраняю…";
+          errorBox.style.display = "none";
+
+          try {
+            await api("/api/visits/" + appointmentId + "/start-time", {
+              method: "PUT",
+              body: JSON.stringify({ startTime: startTime })
+            });
+            await afterSave();
+          } catch(error) {
+            errorBox.textContent = error.message || "Не удалось сохранить время начала.";
+            errorBox.style.display = "block";
+            saveButton.disabled = false;
+            saveButton.textContent = "Сохранить";
+          }
+        });
+
+        input.focus();
+      });
+    });
+  }
+
   function rowForVisit(item) {
     const petBreedLabel = [item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ");
     const petLabel = item.name + (petBreedLabel ? " · " + petBreedLabel : "");
@@ -570,7 +639,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (item.status === "scheduled" || item.status === "waiting") {
       action = '<button class="inlineaction primary-action" data-start-visit="' + id + '">▶ Начать визит</button>';
     } else if (item.status === "in_progress") {
-      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>';
+      action = '<button class="inlineaction primary-action" data-finish-visit="' + id + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button>' +
+        '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '">Изменить время начала</button>' +
+        '<div data-start-time-editor-slot="' + id + '"></div>';
     }
     return '<div class="item"><div class="time">' + esc(item.appointment_time || "—") + '</div><div class="itembody">' +
       '<button type="button" class="visit-record-trigger" data-toggle-visit-detail="' + id + '" aria-expanded="false">' +
@@ -944,6 +1015,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ).catch(showError);
       });
     });
+    bindStartTimeEditorButtons(content, function(){return renderToday();});
   }
   async function openAppointmentEditor(appointment, defaultDate, selectedShift) {
     const slot = document.getElementById("appointment-editor-slot");
@@ -1808,6 +1880,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         return '<article class="history-card">' +
           '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
           '<div class="history-time">' + esc(time) + '</div></div>' +
+          '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '">Изменить время начала</button>' +
+          '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
           '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
           '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
           '<div class="smallmuted history-photo-label">Фото после визита</div>' +
@@ -1887,6 +1961,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ).catch(showError);
       });
     });
+
+    bindStartTimeEditorButtons(content, function(){return renderVisits();});
 
     content.querySelectorAll("[data-open-pet]").forEach(function(button) {
       button.addEventListener("click",function() {
