@@ -10,6 +10,3 @@ binding = "DB"
 database_name = "groomer-assistant-db"
 database_id = "964f54df-a07d-4644-98aa-fc78146adf3c"
 
-[[r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "pretty-dogs-photos"
