@@ -4735,11 +4735,11 @@ async function handleWebApi(request, env) {
       if (slotCheck.error) return webApiResponse({ error: slotCheck.error }, slotCheck.status);
 
       if (isNoCard) {
-        const tempPet = await env.DB.prepare(`
+        const newPet = await env.DB.prepare(`
           INSERT INTO dogs (name, species, breed, breed_variant, is_temporary)
-          VALUES (?, 'dog', ?, ?, 1)
+          VALUES (?, 'dog', ?, ?, 0)
         `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null).run();
-        dogId = Number(tempPet.meta.last_row_id);
+        dogId = Number(newPet.meta.last_row_id);
       }
 
       const position = await env.DB.prepare(`
@@ -4818,15 +4818,16 @@ async function handleWebApi(request, env) {
         if (oldPet && Number(oldPet.is_temporary) === 1) {
           dogId = Number(oldPet.id);
           await env.DB.prepare(`
-            UPDATE dogs SET name = ?, breed = ?, breed_variant = ?
+            UPDATE dogs
+            SET name = ?, breed = ?, breed_variant = ?, is_temporary = 0
             WHERE id = ? AND is_temporary = 1
           `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null, dogId).run();
         } else {
-          const tempPet = await env.DB.prepare(`
+          const newPet = await env.DB.prepare(`
             INSERT INTO dogs (name, species, breed, breed_variant, is_temporary)
-            VALUES (?, 'dog', ?, ?, 1)
+            VALUES (?, 'dog', ?, ?, 0)
           `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null).run();
-          dogId = Number(tempPet.meta.last_row_id);
+          dogId = Number(newPet.meta.last_row_id);
         }
       }
 
