@@ -5296,6 +5296,73 @@ async function handleWebApi(request, env) {
       });
     }
 
+    const editVisitStartTimeMatch = path.match(/^\/api\/visits\/(\d+)\/start-time$/);
+    if (request.method === "PUT" && editVisitStartTimeMatch) {
+      const appointmentId = Number(editVisitStartTimeMatch[1]);
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать новое время начала." }, 400);
+      }
+
+      const startTime = String(body.startTime || "").trim();
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
+        return webApiResponse({ error: "Укажи корректное время начала в формате ЧЧ:ММ." }, 400);
+      }
+
+      const appointment = await env.DB.prepare(`
+        SELECT id, appointment_date, status, actual_end_time
+        FROM appointments
+        WHERE id = ?
+      `).bind(appointmentId).first();
+
+      if (!appointment) {
+        return webApiResponse({ error: "Визит не найден." }, 404);
+      }
+      if (!["in_progress", "completed"].includes(appointment.status)) {
+        return webApiResponse({ error: "Время начала можно изменить только у начатого или завершённого визита." }, 409);
+      }
+
+      if (appointment.status === "completed" && appointment.actual_end_time) {
+        const endTime = String(appointment.actual_end_time || "").slice(0, 5);
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) {
+          return webApiResponse({ error: "Не удалось определить время окончания визита." }, 400);
+        }
+
+        const startMs = localDateTimeMs(appointment.appointment_date, startTime);
+        const endMs = localDateTimeMs(appointment.appointment_date, endTime);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) {
+          return webApiResponse({ error: "Время начала должно быть раньше времени окончания визита." }, 400);
+        }
+
+        const durationMinutes = Math.round((endMs - startMs) / 60000);
+        await env.DB.prepare(`
+          UPDATE appointments
+          SET actual_start_time = ?,
+              actual_duration_minutes = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'completed'
+        `).bind(startTime, durationMinutes, appointmentId).run();
+
+        return webApiResponse({
+          ok: true,
+          appointmentId,
+          startTime,
+          actualDurationMinutes: durationMinutes
+        });
+      }
+
+      await env.DB.prepare(`
+        UPDATE appointments
+        SET actual_start_time = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'in_progress'
+      `).bind(startTime, appointmentId).run();
+
+      return webApiResponse({ ok: true, appointmentId, startTime });
+    }
+
     const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
     if (request.method === "POST" && startVisitMatch) {
       const appointmentId = Number(startVisitMatch[1]);
