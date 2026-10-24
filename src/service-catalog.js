@@ -134,7 +134,11 @@ const additionalServices = [
   item("addon:teeth-cleaning", "Профилактическая чистка зубов", 450, {
     type: "addon",
     minutes: 10,
-    note: "На присланном скриншоте после 450 ₽ часть суммы закрыта; цену можно изменить"
+    note: "Профилактическая чистка зубов"
+  }),
+  item("addon:anal-glands", "Чистка параанальных желез", 300, {
+    type: "addon",
+    minutes: 10
   }),
   item("addon:paw-pads", "Уход за подушечками лап", 300, {
     type: "addon",
