@@ -4348,22 +4348,89 @@ async function validateWebAppointmentSlot(env, targetDate, targetTime, ignoreId 
 
 
 const R2_PHOTO_PREFIX = "r2:";
+const DB_PHOTO_PREFIX = "dbphoto:";
+const MAX_DB_PHOTO_VALUE_BYTES = 1_900_000;
+const MAX_DB_PHOTO_BINARY_BYTES = 1_400_000;
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
 async function savePhotoToR2(env, key, photoFile) {
-  if (!env.PHOTOS) {
-    return { error: "Не подключено хранилище фотографий. Создай R2 bucket pretty-dogs-photos и добавь привязку PHOTOS в Cloudflare Worker.", status: 503 };
+  const contentType = String(photoFile.type || "image/jpeg").slice(0, 100);
+  if (env.PHOTOS) {
+    await env.PHOTOS.put(key, await photoFile.arrayBuffer(), {
+      httpMetadata: { contentType }
+    });
+    return { storedValue: R2_PHOTO_PREFIX + key };
   }
-  await env.PHOTOS.put(key, await photoFile.arrayBuffer(), {
-    httpMetadata: { contentType: String(photoFile.type || "image/jpeg") }
-  });
-  return { storedValue: R2_PHOTO_PREFIX + key };
+
+  // No R2 bucket is configured in this project. Keep web photos inside D1
+  // so publishing does not depend on Telegram or an uncreated R2 bucket.
+  const buffer = await photoFile.arrayBuffer();
+  if (buffer.byteLength > MAX_DB_PHOTO_BINARY_BYTES) {
+    return {
+      error: "Фотография слишком большая. Выбери её ещё раз — приложение автоматически уменьшит изображение.",
+      status: 413
+    };
+  }
+  const storedValue = DB_PHOTO_PREFIX + contentType + ";base64," + arrayBufferToBase64(buffer);
+  if (storedValue.length > MAX_DB_PHOTO_VALUE_BYTES) {
+    return {
+      error: "Фотография слишком большая для сохранения. Выбери её ещё раз, чтобы приложение уменьшило размер.",
+      status: 413
+    };
+  }
+  return { storedValue };
 }
 
 async function readStoredPhotoResponse(env, storedValue, notFoundMessage, loadErrorMessage) {
   if (!storedValue) return webApiResponse({ error: notFoundMessage }, 404);
+
+  if (storedValue.startsWith(DB_PHOTO_PREFIX)) {
+    try {
+      const data = storedValue.slice(DB_PHOTO_PREFIX.length);
+      const marker = data.indexOf(";base64,");
+      if (marker <= 0) return webApiResponse({ error: loadErrorMessage }, 500);
+      const contentType = data.slice(0, marker);
+      const base64 = data.slice(marker + ";base64,".length);
+      if (!/^image\/[a-z0-9.+-]+$/i.test(contentType) || !/^[A-Za-z0-9+/=]+$/.test(base64)) {
+        return webApiResponse({ error: loadErrorMessage }, 500);
+      }
+      const bytes = base64ToUint8Array(base64);
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer"
+        }
+      });
+    } catch (error) {
+      console.error("D1 photo decode error:", error);
+      return webApiResponse({ error: loadErrorMessage }, 500);
+    }
+  }
+
   if (storedValue.startsWith(R2_PHOTO_PREFIX)) {
     if (!env.PHOTOS) {
-      return webApiResponse({ error: "Хранилище фотографий PHOTOS не подключено." }, 503);
+      return webApiResponse({
+        error: "Эта фотография хранится в отключённом хранилище. Загрузи её заново в веб-приложении."
+      }, 410);
     }
     const object = await env.PHOTOS.get(storedValue.slice(R2_PHOTO_PREFIX.length));
     if (!object) return webApiResponse({ error: notFoundMessage }, 404);
@@ -4377,8 +4444,9 @@ async function readStoredPhotoResponse(env, storedValue, notFoundMessage, loadEr
       }
     });
   }
+
   return webApiResponse({
-    error: "Это старый идентификатор фотографии. Загрузи фото заново в веб-приложении, чтобы оно сохранилось в хранилище сайта."
+    error: "У этой записи нет файла фотографии в веб-хранилище. Загрузи изображение заново в веб-приложении."
   }, 410);
 }
 
