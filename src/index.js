@@ -4377,107 +4377,9 @@ async function readStoredPhotoResponse(env, storedValue, notFoundMessage, loadEr
       }
     });
   }
-  if (!env.BOT_TOKEN) {
-    return webApiResponse({
-      error: "Эта фотография ещё хранится в Telegram. Сначала перенеси старые фотографии в разделe «Главное», затем отключай бота."
-    }, 503);
-  }
-  const fileInfoResponse = await fetch(
-    `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(storedValue)}`
-  );
-  const fileInfo = await fileInfoResponse.json();
-  if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
-    return webApiResponse({ error: loadErrorMessage }, 502);
-  }
-  const imageResponse = await fetch(
-    `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
-  );
-  if (!imageResponse.ok) return webApiResponse({ error: loadErrorMessage }, 502);
-  return new Response(imageResponse.body, {
-    status: 200,
-    headers: {
-      "Content-Type": imageResponse.headers.get("Content-Type") || "image/jpeg",
-      "Cache-Control": "private, max-age=300",
-      "X-Content-Type-Options": "nosniff",
-      "Referrer-Policy": "no-referrer"
-    }
-  });
-}
-
-async function getPhotoMigrationStatus(env) {
-  const [covers, grooming, visits] = await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) AS count FROM pet_cover_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM grooming_card_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM visit_photos WHERE telegram_file_id NOT LIKE 'r2:%'").first()
-  ]);
-  const counts = {
-    covers: Number(covers?.count || 0),
-    grooming: Number(grooming?.count || 0),
-    visits: Number(visits?.count || 0)
-  };
-  return { ...counts, total: counts.covers + counts.grooming + counts.visits };
-}
-
-async function migrateLegacyTelegramPhotos(env, limit = 8) {
-  if (!env.PHOTOS) {
-    return { error: "Сначала создай R2 bucket pretty-dogs-photos и привяжи его к Worker через PHOTOS.", status: 503 };
-  }
-  if (!env.BOT_TOKEN) {
-    return { error: "Для переноса старых фото нужен токен Telegram. Пока не удаляй бота и его токен.", status: 503 };
-  }
-  const [coverRows, groomingRows, visitRows] = await Promise.all([
-    env.DB.prepare("SELECT dog_id AS id, telegram_file_id AS file_id FROM pet_cover_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY dog_id LIMIT 20").all(),
-    env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM grooming_card_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all(),
-    env.DB.prepare("SELECT id, telegram_file_id AS file_id FROM visit_photos WHERE telegram_file_id NOT LIKE 'r2:%' ORDER BY id LIMIT 20").all()
-  ]);
-  const groups = [
-    (coverRows.results || []).map(row => ({ table: "cover", id: Number(row.id), fileId: row.file_id, key: "covers/" + Number(row.id) })),
-    (groomingRows.results || []).map(row => ({ table: "grooming", id: Number(row.id), fileId: row.file_id, key: "grooming/" + Number(row.id) })),
-    (visitRows.results || []).map(row => ({ table: "visit", id: Number(row.id), fileId: row.file_id, key: "visits/" + Number(row.id) }))
-  ];
-  const taskLimit = Math.max(1, Math.min(12, Number(limit) || 8));
-  const tasks = [];
-  for (let index = 0; tasks.length < taskLimit && groups.some(group => index < group.length); index += 1) {
-    for (const group of groups) {
-      if (group[index] && tasks.length < taskLimit) tasks.push(group[index]);
-    }
-  }
-  let migrated = 0;
-  const errors = [];
-  for (const task of tasks) {
-    try {
-      const fileInfoResponse = await fetch(
-        `${TELEGRAM_API}/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(task.fileId)}`
-      );
-      const fileInfo = await fileInfoResponse.json();
-      if (!fileInfoResponse.ok || !fileInfo.ok || !fileInfo.result?.file_path) {
-        throw new Error("Telegram не вернул файл");
-      }
-      const imageResponse = await fetch(
-        `${TELEGRAM_API}/file/bot${env.BOT_TOKEN}/${fileInfo.result.file_path}`
-      );
-      if (!imageResponse.ok) throw new Error("Не удалось скачать файл из Telegram");
-      await env.PHOTOS.put(task.key, await imageResponse.arrayBuffer(), {
-        httpMetadata: { contentType: imageResponse.headers.get("Content-Type") || "image/jpeg" }
-      });
-      const value = R2_PHOTO_PREFIX + task.key;
-      if (task.table === "cover") {
-        await env.DB.prepare("UPDATE pet_cover_photos SET telegram_file_id = ?, updated_at = CURRENT_TIMESTAMP WHERE dog_id = ?")
-          .bind(value, task.id).run();
-      } else if (task.table === "grooming") {
-        await env.DB.prepare("UPDATE grooming_card_photos SET telegram_file_id = ? WHERE id = ?")
-          .bind(value, task.id).run();
-      } else {
-        await env.DB.prepare("UPDATE visit_photos SET telegram_file_id = ? WHERE id = ?")
-          .bind(value, task.id).run();
-      }
-      migrated += 1;
-    } catch (error) {
-      errors.push({ id: task.id, type: task.table, message: String(error?.message || error).slice(0, 180) });
-    }
-  }
-  const status = await getPhotoMigrationStatus(env);
-  return { migrated, remaining: status.total, status, errors };
+  return webApiResponse({
+    error: "Это старый идентификатор фотографии. Загрузи фото заново в веб-приложении, чтобы оно сохранилось в хранилище сайта."
+  }, 410);
 }
 
 async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, body) {
@@ -4616,17 +4518,6 @@ async function handleWebApi(request, env) {
     const date = localDate();
     const month = date.slice(0, 7);
     const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
-
-    if (request.method === "GET" && path === "/api/admin/photo-migration-status") {
-      const status = await getPhotoMigrationStatus(env);
-      return webApiResponse({ status, photosBucketConfigured: Boolean(env.PHOTOS), botTokenConfigured: Boolean(env.BOT_TOKEN) });
-    }
-
-    if (request.method === "POST" && path === "/api/admin/migrate-photos") {
-      const result = await migrateLegacyTelegramPhotos(env, 8);
-      if (result.error) return webApiResponse({ error: result.error }, result.status || 503);
-      return webApiResponse({ ok: true, ...result });
-    }
 
     if (request.method === "GET" && path === "/api/breed-variants") {
       const breed = String(url.searchParams.get("breed") || "").trim().slice(0, 120);
