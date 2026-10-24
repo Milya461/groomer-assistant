@@ -5312,7 +5312,8 @@ async function handleWebApi(request, env) {
       }
 
       const appointment = await env.DB.prepare(`
-        SELECT id, appointment_date, status, actual_end_time
+        SELECT id, appointment_date, appointment_time, planned_duration_minutes,
+               status, actual_end_time
         FROM appointments
         WHERE id = ?
       `).bind(appointmentId).first();
@@ -5320,8 +5321,38 @@ async function handleWebApi(request, env) {
       if (!appointment) {
         return webApiResponse({ error: "Визит не найден." }, 404);
       }
+
+      // Для не начавшегося визита меняем запланированное время,
+      // сохраняя проверку рабочей смены и занятых интервалов.
+      if (["scheduled", "waiting"].includes(appointment.status)) {
+        const slotCheck = await validateWebAppointmentSlot(
+          env,
+          appointment.appointment_date,
+          startTime,
+          appointmentId,
+          Number(appointment.planned_duration_minutes || 0)
+        );
+        if (slotCheck.error) {
+          return webApiResponse({ error: slotCheck.error }, slotCheck.status || 400);
+        }
+
+        await env.DB.prepare(`
+          UPDATE appointments
+          SET appointment_time = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status IN ('scheduled', 'waiting')
+        `).bind(startTime, appointmentId).run();
+
+        return webApiResponse({
+          ok: true,
+          appointmentId,
+          startTime,
+          timeField: "appointment_time"
+        });
+      }
+
       if (!["in_progress", "completed"].includes(appointment.status)) {
-        return webApiResponse({ error: "Время начала можно изменить только у начатого или завершённого визита." }, 409);
+        return webApiResponse({ error: "Время начала нельзя изменить для этого статуса визита." }, 409);
       }
 
       if (appointment.status === "completed" && appointment.actual_end_time) {
@@ -5349,6 +5380,7 @@ async function handleWebApi(request, env) {
           ok: true,
           appointmentId,
           startTime,
+          timeField: "actual_start_time",
           actualDurationMinutes: durationMinutes
         });
       }
@@ -5360,7 +5392,12 @@ async function handleWebApi(request, env) {
         WHERE id = ? AND status = 'in_progress'
       `).bind(startTime, appointmentId).run();
 
-      return webApiResponse({ ok: true, appointmentId, startTime });
+      return webApiResponse({
+        ok: true,
+        appointmentId,
+        startTime,
+        timeField: "actual_start_time"
+      });
     }
 
     const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
