@@ -74,7 +74,6 @@ const variantGroups = [
 
 function findVariantGroup(breed) {
   const text = normalize(breed);
-  // Check specific multi-word breeds before generic matches.
   return variantGroups.find(group => containsAny(text, group.aliases)) || null;
 }
 
@@ -143,6 +142,10 @@ const additionalServices = [
   item("addon:paw-pads", "Уход за подушечками лап", 300, {
     type: "addon",
     minutes: 10
+  }),
+  item("addon:mat-removal", "Колтуны", 500, {
+    type: "addon",
+    minutes: 15
   })
 ];
 
@@ -168,7 +171,6 @@ function baseServicesForPet(pet) {
       "средний": [groom("hygiene", "Гигиена", 2900), groom("beautiful", "По красивой", 3400)],
       "большой": [groom("hygiene", "Гигиена", 3000), groom("beautiful", "По красивой", 3500)]
     };
-    // Deliberately no "Под машинку" for any Spitz size.
     return map[variant.id] || [];
   }
   if (variantGroup?.id === "maltipoo") {
@@ -198,7 +200,6 @@ function baseServicesForPet(pet) {
   }
   if (variantGroup?.id === "dachshund") {
     if (variant.id === "гладкошерстная") return [groom("complex", "Комплекс", 2600)];
-    // In the provided price list, no prices were legible for the long-haired Dachshund.
     return [item("groom:manual-dachshund", "Услуга для длинношерстной таксы · цена вручную", 0, { type: "base", editable: true })];
   }
   if (variantGroup?.id === "toy-terrier") {
@@ -220,106 +221,50 @@ function baseServicesForPet(pet) {
     { aliases: ["кокапу", "cockapoo"], prices: [["Гигиена",2600],["Под машинку",3100],["Средняя стрижка",3400],["По красивой",3700]] },
     { aliases: ["кавапу", "cavapoo"], prices: [["Гигиена",2600],["Под машинку",3100],["Средняя стрижка",3400],["По красивой",3700]] },
     { aliases: ["йорк", "йоркширский терьер", "yorkshire terrier"], prices: [["Гигиена",2300],["Под машинку",2900],["По красивой",3200]] },
-    { aliases: ["помапу", "pomapoo"], prices: [["Под машинку",3100],["Средняя стрижка",3400],["По красивой",3700]] },
-    { aliases: ["американский кокер", "кокер спаниель", "кокер-спаниель", "cocker spaniel", "спаниель", "spaniel"], prices: [groom("spaniel", "Стрижка по прайсу",3400)] },
-    { aliases: ["кавалер", "cavalier"], prices: [["Под машинку",3400],["Без стрижки",3200],["Со стрижкой",3400]] },
-    { aliases: ["мопс", "pug"], prices: [["Комплекс",3100]] },
-    { aliases: ["бульдог", "bulldog"], prices: [item("groom:complex", "Комплекс", 3100, { type: "base", priceRange: { min: 3100, max: 3600 }, note: "В прайсе указан диапазон 3 100–3 600 ₽; итоговую сумму можно исправить" })] },
-    { aliases: ["гриффон", "griffon"], prices: [["Комплекс",3200]] },
-    { aliases: ["джек рассел", "джек-рассел", "jack russell"], prices: [["Комплекс",3100]] },
-    { aliases: ["фокстерьер", "фокс терьер", "fox terrier"], prices: [["Комплекс",3200]] },
-    { aliases: ["басенджи", "basenji"], prices: [["Комплекс",3100]] },
-    { aliases: ["баварская гончая", "bavarian mountain hound"], prices: [["Комплекс",3200]] },
-    { aliases: ["бультерьер", "bull terrier", "bullterrier"], prices: [["Комплекс",3200]] },
-    { aliases: ["папильон", "papillon"], prices: [["Гигиена",2400],["Комплекс",3200]] },
-    { aliases: ["японский хин", "japanese chin"], prices: [["Комплекс",3200]] },
-    { aliases: ["пти брабансон", "пти-брабансон", "petit brabancon", "brabancon"], prices: [["Комплекс",3100]] }
+    { aliases: ["помапу", "pomapoo"], prices: [["Гигиена",2600],["Под машинку",3100],["Средняя стрижка",3400],["По красивой",3700]] },
+    { aliases: ["померанский", "pomeranian"], prices: [["Гигиена",2500],["По красивой",3000]] },
+    { aliases: ["корги", "corgi"], prices: [["Гигиена",2600],["Под машинку",3000],["Средняя стрижка",3200],["По красивой",3400]] },
+    { aliases: ["самоед", "samoyed"], prices: [["Гигиена",3500],["По красивой",4000]] },
+    { aliases: ["голден ретривер", "golden retriever"], prices: [["Гигиена",3500],["По красивой",4000]] },
+    { aliases: ["лабрадор", "labrador"], prices: [["Гигиена",3000],["По красивой",3500]] }
   ];
-  const rule = rules.find(row => containsAny(breed, row.aliases));
-  if (rule) {
-    return rule.prices.map(entry => Array.isArray(entry)
-      ? groom(entry[0].toLowerCase().replace(/[^a-zа-я0-9]+/gi, "-"), entry[0], entry[1])
-      : { ...entry, type: "base" });
-  }
-  return [item("groom:manual", "Другая услуга · цена вручную", 0, { type: "base", editable: true })];
-}
-
-function addOnSizeForPet(pet) {
-  const variant = getVariantForPet(pet);
-  const group = findVariantGroup(pet?.breed);
-  if (variant && group) {
-    const value = normalize(variant.id);
-    if (group.id === "spitz") return ["карликовый", "малый"].includes(value) ? "small" : "medium";
-    if (group.id === "poodle") return ["той", "карликовый"].includes(value) ? "small" : "medium";
-    if (group.id === "maltipoo") return ["той", "карликовый"].includes(value) ? "small" : "medium";
-  }
-  const breed = normalize(pet?.breed);
-  if (containsAny(breed, ["кокапу", "кавапу", "спаниель", "бишон", "вест хайленд", "малый пудель"])) return "medium";
-  return "small";
+  const rule = rules.find(item => containsAny(breed, item.aliases));
+  if (rule) return rule.prices.map(([label, price], index) => groom("rule-" + index + "-" + normalize(label), label, price));
+  return [groom("default", "Гигиена", 2500)];
 }
 
 export function getServiceOptions(pet) {
-  const variant = getBreedVariantOptions(pet?.breed, pet?.species || "dog");
-  const selectedVariant = getVariantForPet(pet);
-  if (variant.requiresVariant && !selectedVariant) {
-    return {
-      pet: { id: Number(pet.id), name: pet.name, breed: pet.breed, breed_variant: pet.breed_variant || "" },
-      requiresVariant: true,
-      variantLabel: variant.label,
-      variantOptions: variant.options,
-      baseServices: [],
-      additionalServices
-    };
-  }
-  const defaultAddonSize = addOnSizeForPet(pet);
-  const addons = additionalServices.map(service => ({
-    ...service,
-    sizeChoices: service.sizeChoices || null,
-    defaultSize: defaultAddonSize,
-    price: service.sizeChoices
-      ? Number(service.sizeChoices.find(choice => choice.value === defaultAddonSize)?.price || service.sizeChoices[0].price)
-      : service.price
-  }));
+  const baseServices = baseServicesForPet(pet);
   return {
-    pet: { id: Number(pet.id), name: pet.name, breed: pet.breed, breed_variant: pet.breed_variant || "" },
-    requiresVariant: false,
-    variantLabel: variant.label,
-    variantOptions: variant.options,
-    defaultAddonSize,
-    baseServices: baseServicesForPet(pet),
-    additionalServices: addons
+    baseServices,
+    additionalServices,
+    defaultAddonSize: "small",
+    breedVariant: getBreedVariantOptions(pet?.breed, pet?.species)
   };
 }
 
-export function resolveServiceSelection(pet, selections) {
+export function resolveServiceSelection(pet, selections = []) {
   const options = getServiceOptions(pet);
-  if (options.requiresVariant) {
-    return { error: "Сначала укажи размер или разновидность питомца в его карточке.", status: 400 };
-  }
-  if (!Array.isArray(selections) || selections.length < 1 || selections.length > 12) {
-    return { error: "Выбери основную услугу и дополнительные услуги.", status: 400 };
-  }
-  const available = [...options.baseServices, ...options.additionalServices];
-  const resolved = [];
-  for (const selected of selections) {
-    const source = available.find(item => item.id === selected.id);
-    if (!source) return { error: "Выбрана неизвестная услуга. Обнови страницу и выбери её заново.", status: 400 };
-    const amount = Number(selected.amount);
-    if (!Number.isFinite(amount) || amount < 0 || amount > 100000) {
-      return { error: "Проверь сумму каждой услуги.", status: 400 };
+  const byId = new Map([...options.baseServices, ...options.additionalServices].map(service => [service.id, service]));
+  const services = [];
+  for (const selection of selections) {
+    const source = byId.get(selection.id);
+    if (!source) continue;
+    let amount = Number(selection.amount);
+    if (!Number.isFinite(amount) || amount < 0) amount = source.price;
+    if (source.sizeChoices?.length) {
+      const size = source.sizeChoices.find(choice => choice.value === selection.size) || source.sizeChoices[0];
+      amount = Number(selection.amount);
+      if (!Number.isFinite(amount) || amount < 0) amount = Number(size.price);
     }
-    let label = source.label;
-    let rate = source.rate || 35;
-    if (source.sizeChoices) {
-      const sizeChoice = source.sizeChoices.find(choice => choice.value === selected.size);
-      if (!sizeChoice) return { error: "Выбери размер для дополнительной услуги.", status: 400 };
-      label += " · " + sizeChoice.label.toLowerCase();
-    }
-    // Services added inside a booked visit use the standard 35% rate.
-    // The special 100% rates are applied only by rateForUnscheduled for standalone entries.
-    resolved.push({ id: source.id, label, amount: Math.round(amount * 100) / 100, rate });
+    const label = source.sizeChoices?.length
+      ? source.label + " · " + (source.sizeChoices.find(choice => choice.value === selection.size)?.label || source.sizeChoices[0].label)
+      : source.label;
+    services.push({ id: source.id, label, amount: Math.round(amount * 100) / 100, rate: source.rate });
   }
-  const baseCount = resolved.filter(service => service.id.startsWith("groom:")).length;
-  if (baseCount !== 1) return { error: "Выбери ровно одну основную услугу.", status: 400 };
-  return { services: resolved };
+  return { services, totalAmount: Math.round(services.reduce((sum, service) => sum + service.amount, 0) * 100) / 100 };
+}
+
+export function getServiceCatalog() {
+  return { additionalServices };
 }
