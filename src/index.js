@@ -5312,7 +5312,8 @@ async function handleWebApi(request, env) {
       }
 
       const appointment = await env.DB.prepare(`
-        SELECT id, appointment_date, appointment_time, planned_duration_minutes,
+        SELECT id, appointment_date, appointment_time, actual_start_time,
+               actual_duration_minutes, planned_duration_minutes,
                status, actual_end_time
         FROM appointments
         WHERE id = ?
@@ -5322,8 +5323,6 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Визит не найден." }, 404);
       }
 
-      // Для не начавшегося визита меняем запланированное время,
-      // сохраняя проверку рабочей смены и занятых интервалов.
       if (["scheduled", "waiting"].includes(appointment.status)) {
         const slotCheck = await validateWebAppointmentSlot(
           env,
@@ -5355,19 +5354,37 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Время начала нельзя изменить для этого статуса визита." }, 409);
       }
 
-      if (appointment.status === "completed" && appointment.actual_end_time) {
-        const endTime = String(appointment.actual_end_time || "").slice(0, 5);
-        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) {
-          return webApiResponse({ error: "Не удалось определить время окончания визита." }, 400);
+      if (appointment.status === "completed") {
+        const newStartMs = localDateTimeMs(appointment.appointment_date, startTime);
+        let endMs;
+
+        if (appointment.actual_end_time) {
+          const endTime = String(appointment.actual_end_time || "").slice(0, 5);
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) {
+            return webApiResponse({ error: "Не удалось определить время окончания визита." }, 400);
+          }
+          endMs = localDateTimeMs(appointment.appointment_date, endTime);
+        } else {
+          // Older completed records may not have actual_end_time stored.
+          // Reconstruct the end instant from the original start and saved duration.
+          const oldStartTime = String(
+            appointment.actual_start_time || appointment.appointment_time || ""
+          ).slice(0, 5);
+          const oldDuration = Number(appointment.actual_duration_minutes || 0);
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(oldStartTime) ||
+              !Number.isFinite(oldDuration) || oldDuration <= 0) {
+            return webApiResponse({
+              error: "У этого визита не сохранено время окончания или длительность, поэтому длительность нельзя пересчитать автоматически."
+            }, 400);
+          }
+          endMs = localDateTimeMs(appointment.appointment_date, oldStartTime) + oldDuration * 60000;
         }
 
-        const startMs = localDateTimeMs(appointment.appointment_date, startTime);
-        const endMs = localDateTimeMs(appointment.appointment_date, endTime);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) {
+        if (!Number.isFinite(newStartMs) || !Number.isFinite(endMs) || newStartMs >= endMs) {
           return webApiResponse({ error: "Время начала должно быть раньше времени окончания визита." }, 400);
         }
 
-        const durationMinutes = Math.round((endMs - startMs) / 60000);
+        const durationMinutes = Math.round((endMs - newStartMs) / 60000);
         await env.DB.prepare(`
           UPDATE appointments
           SET actual_start_time = ?,
@@ -5400,7 +5417,7 @@ async function handleWebApi(request, env) {
       });
     }
 
-    const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
+const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
     if (request.method === "POST" && startVisitMatch) {
       const appointmentId = Number(startVisitMatch[1]);
       const appointment = await env.DB.prepare(`
