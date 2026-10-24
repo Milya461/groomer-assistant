@@ -85,11 +85,6 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .visit-detail-total{font-weight:750;border-bottom:0;padding-bottom:2px}
 .visit-detail-meta{font-size:10px;line-height:1.5;color:#666;margin-top:9px}
 .visit-detail-empty{font-size:11px;line-height:1.5;color:#666}
-.photo-migration-card{padding:15px;border:1px solid var(--line);border-radius:12px;margin:0 0 22px;background:#fafafa}
-.photo-migration-card h3{font-size:13px;margin:0 0 7px;font-weight:780}
-.photo-migration-card p{font-size:11px;line-height:1.55;color:#666;margin:0}
-.photo-migration-card .btn{margin-top:12px}
-.photo-migration-status{font-size:11px;line-height:1.5;color:#555;margin-top:10px;white-space:pre-wrap}
 .status{font-size:9px;letter-spacing:.02em;border:1px solid #dedede;padding:6px 8px;border-radius:7px;white-space:nowrap;color:#555;background:#fff}
 .btn{border:1px solid var(--black);background:var(--black);color:#fff;border-radius:10px;padding:12px 15px;font-size:12px;font-weight:720;transition:opacity .15s}
 .btn.secondary{background:#fff;color:#111;border-color:var(--line)}
@@ -529,67 +524,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (h) return h + " ч";
     return m + " мин";
   }
-  async function renderPhotoMigrationControls() {
-    const slot = document.getElementById("photo-migration-slot");
-    if (!slot) return;
-    try {
-      const data = await api("/api/admin/photo-migration-status");
-      const status = data.status || {};
-      const remaining = Number(status.total || 0);
-      if (!remaining) {
-        slot.innerHTML = "";
-        return;
-      }
-      const bucketReady = Boolean(data.photosBucketConfigured);
-      const tokenReady = Boolean(data.botTokenConfigured);
-      const setupMessages = [];
-      if (!bucketReady) setupMessages.push("Создай в Cloudflare R2 bucket pretty-dogs-photos и опубликуй Worker с привязкой PHOTOS.");
-      if (!tokenReady) setupMessages.push("Чтобы скачать старые файлы, временно восстанови секрет BOT_TOKEN. Не удаляй Telegram-бота до завершения переноса.");
-      slot.innerHTML =
-        '<section class="photo-migration-card">' +
-          '<h3>Перенос архива фотографий</h3>' +
-          '<p>Старые фотографии нужно перенести из Telegram в независимое хранилище сайта до отключения бота.</p>' +
-          '<div class="photo-migration-status" id="photo-migration-progress">Осталось перенести: ' + remaining + ' фото · главное фото: ' + Number(status.covers || 0) + ', примеры стрижек: ' + Number(status.grooming || 0) + ', фото визитов: ' + Number(status.visits || 0) + '.</div>' +
-          (setupMessages.length ? '<div class="photo-migration-status" id="photo-migration-prerequisites">' + setupMessages.map(esc).join(" ") + '</div>' : '') +
-          '<button type="button" class="btn secondary" id="photo-migration-start"' + (bucketReady && tokenReady ? '' : ' disabled') + '>Перенести фотографии</button>' +
-        '</section>';
-      const button = document.getElementById("photo-migration-start");
-      const progress = document.getElementById("photo-migration-progress");
-      button.addEventListener("click",async function() {
-        button.disabled = true;
-        button.textContent = "Переношу…";
-        let migratedTotal = 0;
-        let latest = status;
-        try {
-          for (let batch = 0; batch < 2; batch++) {
-            const result = await api("/api/admin/migrate-photos", {method:"POST",body:"{}"});
-            migratedTotal += Number(result.migrated || 0);
-            latest = result.status || {total:Number(result.remaining || 0)};
-            if (progress) progress.textContent = "Перенесено за этот запуск: " + migratedTotal + ". Осталось: " + Number(result.remaining || 0) + ".";
-            if (result.errors && result.errors.length) {
-              throw new Error("Не удалось перенести фото №" + result.errors[0].id + " (" + result.errors[0].type + "): " + result.errors[0].message);
-            }
-            if (!Number(result.remaining || 0) || !Number(result.migrated || 0)) break;
-          }
-          const remainingNow = Number(latest.total || 0);
-          if (!remainingNow) {
-            slot.innerHTML = '<section class="photo-migration-card"><h3>Архив фотографий перенесён</h3><p>Все старые фотографии перенесены. Проверь главное фото, фото-примеры и фотографии после визитов. После проверки можно убрать секрет BOT_TOKEN и удалить бота.</p></section>';
-          } else {
-            if (progress) progress.textContent = "Перенесено за этот запуск: " + migratedTotal + ". Осталось: " + remainingNow + ". Нажми кнопку ещё раз, чтобы продолжить.";
-            button.disabled = false;
-            button.textContent = "Продолжить перенос · " + remainingNow + " осталось";
-          }
-        } catch(error) {
-          if (progress) progress.textContent = "Перенос остановился: " + (error.message || "ошибка") + ". Исправь указанную проблему и повтори.";
-          button.disabled = false;
-          button.textContent = "Повторить перенос";
-        }
-      });
-    } catch(error) {
-      slot.innerHTML = '<section class="photo-migration-card"><h3>Подготовка фотоархива</h3><p>Не удалось проверить старые фотографии: ' + esc(error.message || "ошибка") + '</p></section>';
-    }
-  }
-
   function visitDetailsHtml(item) {
     const raw = String(item.procedures || "").trim();
     const entries = raw ? raw.split(/;\s*|\n+/).map(function(value){ return value.trim(); }).filter(Boolean) : [];
@@ -895,12 +829,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
-      '<div id="photo-migration-slot"></div>' +
       '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div><div class="count" style="margin-top:5px">' + rows.length + ' ЗАПИСЕЙ</div></div><button type="button" class="btn" id="add-appointment">＋ Добавить запись</button></div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
       '<div id="visit-action-panel"></div><div id="appointment-editor-slot"></div>';
-
-    renderPhotoMigrationControls();
 
     content.querySelectorAll("[data-toggle-visit-detail]").forEach(function(button) {
       button.addEventListener("click",function() {
