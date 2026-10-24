@@ -1310,7 +1310,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           return '<article class="appointment-card">' +
             '<div class="appointment-card-time">' + esc(item.appointment_time || "—") + '</div>' +
             '<div><div class="appointment-card-name">' + esc(item.name) + '</div><div class="appointment-card-meta">' + esc([item.breed, item.species === "cat" ? "кошка" : "собака", statusText(item.status)].filter(Boolean).join(" · ")) + '</div></div>' +
-            ([ "scheduled", "waiting" ].includes(item.status) ? '<button type="button" class="inlineaction" data-edit-appointment="' + Number(item.id) + '">Изменить</button>' : '<span class="status">' + esc(statusText(item.status)) + '</span>') +
+            ([ "scheduled", "waiting" ].includes(item.status)
+              ? '<div style="display:flex;flex-direction:column;gap:6px">' +
+                  '<button type="button" class="inlineaction" data-edit-appointment="' + Number(item.id) + '">Изменить запись</button>' +
+                  '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время</button>' +
+                  '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
+                '</div>'
+              : '<span class="status">' + esc(statusText(item.status)) + '</span>') +
           '</article>';
         }).join("") : '<div class="empty">На эту дату пока нет записей.</div>') +
         '<div id="appointment-editor-slot"></div>' +
@@ -1338,6 +1344,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (appointment) openAppointmentEditor(appointment, calendarSelectedDate, selectedShift).catch(showError);
       });
     });
+    bindStartTimeEditorButtons(content, function(){return renderCalendar();});
     document.getElementById("calendar-prev").addEventListener("click",function(){moveCalendarMonth(-1);});
     document.getElementById("calendar-next").addEventListener("click",function(){moveCalendarMonth(1);});
     content.querySelectorAll("[data-calendar-date]").forEach(function(button) {
