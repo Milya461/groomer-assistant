@@ -143,9 +143,9 @@ const additionalServices = [
     type: "addon",
     minutes: 10
   }),
-  item("addon:mat-removal", "Колтуны", 500, {
+  item("addon:mat-removal", "Колтуны", 0, {
     type: "addon",
-    minutes: 15
+    editable: true
   })
 ];
 
