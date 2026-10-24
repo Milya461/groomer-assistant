@@ -979,9 +979,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
-      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div><div class="count" style="margin-top:5px">' + rows.length + ' ЗАПИСЕЙ</div></div><button type="button" class="btn" id="add-appointment">＋ Добавить запись</button></div>' +
+      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div><div class="count" style="margin-top:5px">' + rows.length + ' ЗАПИСЕЙ</div></div></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">' +
+        '<button type="button" class="btn" id="add-appointment" style="flex:1 1 145px">＋ Добавить запись</button>' +
+        '<button type="button" class="btn secondary" id="add-unscheduled-service" style="flex:1 1 145px">＋ Услуга без записи</button>' +
+      '</div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
-      '<div id="visit-action-panel"></div><div id="appointment-editor-slot"></div>';
+      '<div id="visit-action-panel"></div><div id="unscheduled-service-slot"></div><div id="appointment-editor-slot"></div>';
 
     content.querySelectorAll("[data-toggle-visit-detail]").forEach(function(button) {
       button.addEventListener("click",function() {
@@ -1000,6 +1004,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     document.getElementById("add-appointment").addEventListener("click",function() {
       openAppointmentEditor(null, moscowISODate()).catch(showError);
+    });
+
+    document.getElementById("add-unscheduled-service").addEventListener("click",function() {
+      openUnscheduledServiceForm().catch(showError);
     });
 
     content.querySelectorAll("[data-start-visit]").forEach(function(button) {
@@ -1032,6 +1040,71 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
     bindStartTimeEditorButtons(content, function(){return renderToday();});
   }
+  async function openUnscheduledServiceForm() {
+    const slot = document.getElementById("unscheduled-service-slot");
+    if (!slot) return;
+    slot.innerHTML =
+      '<section class="appointment-form" style="margin:14px 0">' +
+        '<div class="eyebrow">УСЛУГА БЕЗ ЗАПИСИ</div>' +
+        '<h2 style="margin:8px 0 6px">Добавить услугу</h2>' +
+        '<div class="smallmuted">Когти, чистка параанальных желез и чаевые — 100%. Остальные услуги — 35%.</div>' +
+        '<form id="unscheduled-service-form" style="margin-top:12px">' +
+          '<label class="field"><span>УСЛУГА</span><input name="description" maxlength="120" placeholder="Например, Когти" required></label>' +
+          '<label class="field"><span>СТОИМОСТЬ УСЛУГИ, ₽</span><input name="amount" type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" placeholder="Например, 300" required></label>' +
+          '<div class="appointment-form-error" id="unscheduled-service-error" style="display:none"></div>' +
+          '<div class="appointment-form-actions" style="margin-top:12px">' +
+            '<button type="submit" class="btn" id="unscheduled-service-save">Сохранить услугу</button>' +
+            '<button type="button" class="btn secondary" id="unscheduled-service-cancel">Отмена</button>' +
+          '</div>' +
+        '</form>' +
+      '</section>';
+    const form = document.getElementById("unscheduled-service-form");
+    const saveButton = document.getElementById("unscheduled-service-save");
+    const errorBox = document.getElementById("unscheduled-service-error");
+    document.getElementById("unscheduled-service-cancel").addEventListener("click",function() {
+      slot.innerHTML = "";
+    });
+    form.addEventListener("submit",async function(event) {
+      event.preventDefault();
+      const description = String(form.elements.description.value || "").trim();
+      const amount = Number(form.elements.amount.value);
+      if (!description) {
+        errorBox.textContent = "Укажи название услуги.";
+        errorBox.style.display = "block";
+        return;
+      }
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+        errorBox.textContent = "Укажи стоимость услуги больше 0 и не больше 100 000 ₽.";
+        errorBox.style.display = "block";
+        return;
+      }
+      saveButton.disabled = true;
+      saveButton.textContent = "Сохраняю…";
+      errorBox.style.display = "none";
+      try {
+        const saved = await api("/api/earnings/manual", {
+          method:"POST",
+          body:JSON.stringify({description, amount})
+        });
+        await renderToday();
+        const resultSlot = document.getElementById("unscheduled-service-slot");
+        if (resultSlot) {
+          resultSlot.innerHTML =
+            '<div class="notice" style="margin:14px 0"><strong>Услуга сохранена</strong><p style="margin:8px 0 0">' +
+            esc(saved.description) + ' · ' + Number(saved.rate) + '% · твой заработок ' + money(saved.earned) +
+            '</p></div>';
+          resultSlot.scrollIntoView({behavior:"smooth",block:"center"});
+        }
+      } catch(error) {
+        errorBox.textContent = error.message || "Не удалось сохранить услугу.";
+        errorBox.style.display = "block";
+        saveButton.disabled = false;
+        saveButton.textContent = "Сохранить услугу";
+      }
+    });
+    slot.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
   async function openAppointmentEditor(appointment, defaultDate, selectedShift) {
     const slot = document.getElementById("appointment-editor-slot");
     if (!slot) return;
