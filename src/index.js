@@ -4640,11 +4640,11 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Не удалось определить питомца для расчёта." }, 400);
       }
       const pet = await env.DB.prepare(`
-        SELECT id, name, species, breed, breed_variant
+        SELECT id, name, species, breed, breed_variant, is_temporary
         FROM dogs
-        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+        WHERE id = ?
       `).bind(dogId).first();
-      if (!pet) return webApiResponse({ error: "Карточка питомца не найдена." }, 404);
+      if (!pet) return webApiResponse({ error: "Питомец для записи не найден." }, 404);
       return webApiResponse(getServiceOptions(pet));
     }
 
@@ -4684,12 +4684,11 @@ async function handleWebApi(request, env) {
       const result = await env.DB.prepare(`
         SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
                a.status, a.queue_position, a.procedures, a.planned_duration_minutes,
-               d.name, d.breed, d.species, d.breed_variant
+               d.name, d.breed, d.species, d.breed_variant, d.is_temporary
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
         WHERE a.status IN ('scheduled', 'waiting', 'in_progress')
           AND a.appointment_date >= ? AND a.appointment_date <= ?
-          AND COALESCE(d.is_temporary, 0) = 0
         ORDER BY a.appointment_date, a.appointment_time, a.queue_position, a.id
         LIMIT 300
       `).bind(from, to).all();
@@ -4748,20 +4747,41 @@ async function handleWebApi(request, env) {
       } catch {
         return webApiResponse({ error: "Не удалось прочитать запись." }, 400);
       }
-      const dogId = Number(body.dogId);
+      const rawDogId = String(body.dogId || "");
+      const isNoCard = rawDogId === "none";
+      let dogId = Number(rawDogId);
+      const noCardName = String(body.noCardName || "").trim().slice(0, 100);
+      const noCardBreed = String(body.noCardBreed || "").trim().slice(0, 120);
+      const noCardBreedVariant = String(body.noCardBreedVariant || "").trim().slice(0, 80);
       const targetDate = String(body.date || "");
       const targetTime = String(body.time || "");
-      if (!Number.isSafeInteger(dogId) || dogId <= 0) {
-        return webApiResponse({ error: "Выбери питомца." }, 400);
+      if (isNoCard) {
+        if (!noCardName) return webApiResponse({ error: "Укажи имя питомца для записи без карточки." }, 400);
+        const options = getBreedVariantOptions(noCardBreed, "dog");
+        if (options.requiresVariant && !options.options.some(option => option.value === noCardBreedVariant)) {
+          return webApiResponse({ error: "Выбери размер или разновидность питомца для правильного прайса." }, 400);
+        }
+      } else {
+        if (!Number.isSafeInteger(dogId) || dogId <= 0) {
+          return webApiResponse({ error: "Выбери питомца или вариант «Без карточки»." }, 400);
+        }
+        const pet = await env.DB.prepare(`
+          SELECT id FROM dogs
+          WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+        `).bind(dogId).first();
+        if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
       }
-      const pet = await env.DB.prepare(`
-        SELECT id FROM dogs
-        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
-      `).bind(dogId).first();
-      if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
 
       const slotCheck = await validateWebAppointmentSlot(env, targetDate, targetTime);
       if (slotCheck.error) return webApiResponse({ error: slotCheck.error }, slotCheck.status);
+
+      if (isNoCard) {
+        const tempPet = await env.DB.prepare(`
+          INSERT INTO dogs (name, species, breed, breed_variant, is_temporary)
+          VALUES (?, 'dog', ?, ?, 1)
+        `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null).run();
+        dogId = Number(tempPet.meta.last_row_id);
+      }
 
       const position = await env.DB.prepare(`
         SELECT COALESCE(MAX(queue_position), 0) AS max_position
@@ -4792,14 +4812,19 @@ async function handleWebApi(request, env) {
       } catch {
         return webApiResponse({ error: "Не удалось прочитать изменения записи." }, 400);
       }
-      const dogId = Number(body.dogId);
+      const rawDogId = String(body.dogId || "");
+      const isNoCard = rawDogId === "none";
+      let dogId = Number(rawDogId);
+      const noCardName = String(body.noCardName || "").trim().slice(0, 100);
+      const noCardBreed = String(body.noCardBreed || "").trim().slice(0, 120);
+      const noCardBreedVariant = String(body.noCardBreedVariant || "").trim().slice(0, 80);
       const targetDate = String(body.date || "");
       const targetTime = String(body.time || "");
-      if (!Number.isSafeInteger(dogId) || dogId <= 0) {
-        return webApiResponse({ error: "Выбери питомца." }, 400);
+      if (isNoCard && !noCardName) {
+        return webApiResponse({ error: "Укажи имя питомца для записи без карточки." }, 400);
       }
       const appointment = await env.DB.prepare(`
-        SELECT id, status, planned_duration_minutes
+        SELECT id, dog_id, status, planned_duration_minutes
         FROM appointments
         WHERE id = ?
       `).bind(appointmentId).first();
@@ -4807,16 +4832,44 @@ async function handleWebApi(request, env) {
       if (!["scheduled", "waiting"].includes(appointment.status)) {
         return webApiResponse({ error: "Можно изменить только запись, которая ещё не началась." }, 409);
       }
-      const pet = await env.DB.prepare(`
-        SELECT id FROM dogs
-        WHERE id = ? AND COALESCE(is_temporary, 0) = 0
-      `).bind(dogId).first();
-      if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
+      if (isNoCard) {
+        const options = getBreedVariantOptions(noCardBreed, "dog");
+        if (options.requiresVariant && !options.options.some(option => option.value === noCardBreedVariant)) {
+          return webApiResponse({ error: "Выбери размер или разновидность питомца для правильного прайса." }, 400);
+        }
+      } else {
+        if (!Number.isSafeInteger(dogId) || dogId <= 0) {
+          return webApiResponse({ error: "Выбери питомца или вариант «Без карточки»." }, 400);
+        }
+        const pet = await env.DB.prepare(`
+          SELECT id FROM dogs
+          WHERE id = ? AND COALESCE(is_temporary, 0) = 0
+        `).bind(dogId).first();
+        if (!pet) return webApiResponse({ error: "Питомец не найден. Обнови список питомцев." }, 404);
+      }
 
       const slotCheck = await validateWebAppointmentSlot(
         env, targetDate, targetTime, appointmentId, Number(appointment.planned_duration_minutes || 0)
       );
       if (slotCheck.error) return webApiResponse({ error: slotCheck.error }, slotCheck.status);
+
+      if (isNoCard) {
+        const oldPet = await env.DB.prepare("SELECT id, is_temporary FROM dogs WHERE id = ?")
+          .bind(Number(appointment.dog_id)).first();
+        if (oldPet && Number(oldPet.is_temporary) === 1) {
+          dogId = Number(oldPet.id);
+          await env.DB.prepare(`
+            UPDATE dogs SET name = ?, breed = ?, breed_variant = ?
+            WHERE id = ? AND is_temporary = 1
+          `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null, dogId).run();
+        } else {
+          const tempPet = await env.DB.prepare(`
+            INSERT INTO dogs (name, species, breed, breed_variant, is_temporary)
+            VALUES (?, 'dog', ?, ?, 1)
+          `).bind(noCardName, noCardBreed || null, noCardBreedVariant || null).run();
+          dogId = Number(tempPet.meta.last_row_id);
+        }
+      }
 
       const position = await env.DB.prepare(`
         SELECT COALESCE(MAX(queue_position), 0) AS max_position
@@ -5093,7 +5146,7 @@ async function handleWebApi(request, env) {
         SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
                a.status, a.procedures, a.actual_start_time, a.actual_end_time,
                a.actual_duration_minutes, a.planned_duration_minutes,
-               d.name, d.breed, d.species, d.breed_variant,
+               d.name, d.breed, d.species, d.breed_variant, d.is_temporary,
                COALESCE((
                  SELECT SUM(e.earned)
                  FROM earnings_entries e
