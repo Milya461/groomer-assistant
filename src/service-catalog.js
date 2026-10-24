@@ -107,7 +107,6 @@ function groom(id, label, price) {
 const additionalServices = [
   item("addon:premium-spa", "Премиум СПА-уход", 1100, {
     type: "addon",
-    minutes: 30,
     sizeChoices: [
       { value: "small", label: "Для маленьких", price: 1100 },
       { value: "medium", label: "Для средних", price: 1100 }
@@ -115,7 +114,6 @@ const additionalServices = [
   }),
   item("addon:derma-spa", "Дерма СПА-уход", 600, {
     type: "addon",
-    minutes: 30,
     sizeChoices: [
       { value: "small", label: "Для маленьких", price: 600 },
       { value: "medium", label: "Для средних", price: 700 }
@@ -123,7 +121,6 @@ const additionalServices = [
   }),
   item("addon:coat-care", "Дополнительный уход по типу шерсти", 600, {
     type: "addon",
-    minutes: 15,
     note: "Тип ухода выбирается по типу шерсти",
     sizeChoices: [
       { value: "small", label: "Для маленьких", price: 600 },
@@ -132,16 +129,13 @@ const additionalServices = [
   }),
   item("addon:teeth-cleaning", "Профилактическая чистка зубов", 450, {
     type: "addon",
-    minutes: 10,
     note: "Профилактическая чистка зубов"
   }),
   item("addon:anal-glands", "Чистка параанальных желез", 300, {
-    type: "addon",
-    minutes: 10
+    type: "addon"
   }),
   item("addon:paw-pads", "Уход за подушечками лап", 300, {
-    type: "addon",
-    minutes: 10
+    type: "addon"
   }),
   item("addon:mat-removal", "Колтуны", 0, {
     type: "addon",
