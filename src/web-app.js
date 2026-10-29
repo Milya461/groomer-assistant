@@ -1492,7 +1492,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   ];
 
   function petCardFormHtml(pet) {
-    const fieldsHtml = PET_CARD_FIELDS.map(function(field) {
+    const fieldsHtml = PET_CARD_FIELDS.filter(function(field) {
+      return !(field[0] === "clipper_reaction" && isSpitzBreed(pet));
+    }).map(function(field) {
       const key = field[0], label = field[1], type = field[2];
       if (type === "select") {
         return '<label class="field"><span>' + esc(label) + '</span><select name="species" required>' +
@@ -1698,9 +1700,24 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       "баварская гончая", "bavarian mountain hound", "bayerischer gebirgsschweisshund",
       "американский кокер", "american cocker",
       "спаниель", "spaniel",
-      "пти брабансон", "пти брабансона", "petit brabancon", "brabancon"
+      "пти брабансон", "пти брабансона", "petit brabancon", "brabancon",
+      "шпиц", "spitz", "pomeranian"
     ];
     return excludedBreeds.some(function(name) {
+      return breed.indexOf(name) !== -1;
+    });
+  }
+
+  function isSpitzBreed(pet) {
+    if (!pet || pet.species !== "dog") return false;
+    const breed = String(pet.breed || "")
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .normalize("NFD")
+      .replace(/[\\u0300-\\u036f]/g, "")
+      .replace(/[^a-zа-я0-9]+/g, " ")
+      .trim();
+    return ["шпиц", "spitz", "pomeranian"].some(function(name) {
       return breed.indexOf(name) !== -1;
     });
   }
@@ -1771,7 +1788,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       detailRow("Особенности шерсти",pet.coat_features) +
       detailRow("Предупреждения",pet.warnings) +
       detailRow("Чувствительные зоны",pet.sensitive_areas) +
-      detailRow("Реакция на машинку",pet.clipper_reaction) +
+      (isSpitzBreed(pet) ? "" : detailRow("Реакция на машинку",pet.clipper_reaction)) +
       detailRow("Реакция на фен",pet.dryer_reaction) +
       detailRow("Реакция на когтерез",pet.nail_clipper_reaction) +
       detailRow("Заметки",pet.notes) + '</section>' +
