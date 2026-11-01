@@ -4869,6 +4869,59 @@ async function handleWebApi(request, env) {
       });
     }
 
+    if (request.method === "DELETE" && editAppointmentMatch) {
+      const appointmentId = Number(editAppointmentMatch[1]);
+      const appointment = await env.DB.prepare(`
+        SELECT id, status
+        FROM appointments
+        WHERE id = ?
+      `).bind(appointmentId).first();
+
+      if (!appointment) {
+        return webApiResponse({ error: "Запись не найдена." }, 404);
+      }
+      if (!["scheduled", "waiting"].includes(appointment.status)) {
+        return webApiResponse({
+          error: "Нельзя удалить визит, который уже начался или завершён."
+        }, 409);
+      }
+
+      const earnings = await env.DB.prepare(`
+        SELECT id
+        FROM earnings_entries
+        WHERE appointment_id = ?
+        LIMIT 1
+      `).bind(appointmentId).first();
+      if (earnings) {
+        return webApiResponse({
+          error: "К этой записи уже привязан заработок. Сначала проверь историю визита."
+        }, 409);
+      }
+
+      const deleted = await env.DB.prepare(`
+        DELETE FROM appointments
+        WHERE id = ?
+          AND status IN ('scheduled', 'waiting')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM earnings_entries
+            WHERE appointment_id = ?
+          )
+      `).bind(appointmentId, appointmentId).run();
+
+      if (!deleted.meta?.changes) {
+        return webApiResponse({
+          error: "Запись уже изменилась. Обнови календарь и попробуй снова."
+        }, 409);
+      }
+
+      return webApiResponse({
+        ok: true,
+        id: appointmentId,
+        message: "Запись удалена. Карточка питомца сохранена."
+      });
+    }
+
     if (request.method === "POST" && path === "/api/work-shifts") {
       let body;
       try {
