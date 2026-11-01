@@ -1155,6 +1155,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="appointment-form-actions" style="margin-top:14px">' +
             '<button type="submit" class="btn" id="appointment-form-save">' + (editing ? 'Сохранить изменения' : 'Добавить запись') + '</button>' +
             '<button type="button" class="btn secondary" id="appointment-form-cancel">Отмена</button>' +
+            (editing && ["scheduled", "waiting"].includes(appointment.status)
+              ? '<button type="button" class="btn secondary" id="appointment-form-delete" style="grid-column:1 / -1;border-color:#e3dada;color:#8b3434">Удалить запись</button>'
+              : '') +
           '</div>' +
         '</form>' +
       '</section>';
@@ -1235,6 +1238,38 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       if (dogSelect.value === "none") syncNoCardVariant(true).catch(showError);
     });
     document.getElementById("appointment-form-cancel").addEventListener("click",function(){slot.innerHTML="";});
+    const deleteAppointmentButton = document.getElementById("appointment-form-delete");
+    if (deleteAppointmentButton) {
+      deleteAppointmentButton.addEventListener("click", async function() {
+        const petName = String(appointment.name || "питомца");
+        const dateLabel = String(appointment.appointment_date || "");
+        const timeLabel = String(appointment.appointment_time || "");
+        const confirmed = window.confirm(
+          "Удалить запись для «" + petName + "» от " + dateLabel + " в " + timeLabel + "?\n\n" +
+          "Запись исчезнет из календаря. Карточка питомца останется. Удаление нельзя отменить."
+        );
+        if (!confirmed) return;
+
+        const errorBox = document.getElementById("appointment-form-error");
+        deleteAppointmentButton.disabled = true;
+        deleteAppointmentButton.textContent = "Удаляю…";
+        errorBox.style.display = "none";
+        try {
+          await api("/api/appointments/" + Number(appointment.id), { method: "DELETE" });
+          slot.innerHTML = "";
+          if (currentScreen === "calendar") {
+            await renderCalendar();
+          } else {
+            await renderToday();
+          }
+        } catch(error) {
+          errorBox.textContent = error.message || "Не удалось удалить запись.";
+          errorBox.style.display = "block";
+          deleteAppointmentButton.disabled = false;
+          deleteAppointmentButton.textContent = "Удалить запись";
+        }
+      });
+    }
     syncNoCardFields();
 
     form.addEventListener("submit",async function(event) {
