@@ -5637,11 +5637,16 @@ async function handleWebApi(request, env) {
       const selectedMonthEndDay = new Date(Date.UTC(selectedYear, selectedMonth, 0)).getUTCDate();
       const selectedMonthEnd = String(selectedMonthEndDay).padStart(2, "0");
       const selectedMonthEndDate = String(selectedYear) + "-" + selectedMonthText + "-" + selectedMonthEnd;
+      const currentMonth = Number(date.slice(5, 7));
+      if ((range === "first-half" || range === "second-half") &&
+          (selectedYear !== currentYear || selectedMonth !== currentMonth)) {
+        return webApiResponse({ error: "Разделение на две половины доступно только для текущего месяца." }, 400);
+      }
 
       if (range === "year") {
         start = String(selectedYear) + "-01-01";
         end = String(selectedYear) + "-12-31";
-        periodLabel = "2026 год".replace("2026", String(selectedYear));
+        periodLabel = String(selectedYear) + " год";
       } else if (range === "month") {
         start = selectedMonthStart;
         end = selectedMonthEndDate;
