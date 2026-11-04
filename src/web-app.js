@@ -2129,25 +2129,17 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.innerHTML = '<div class="loading">Загружаю заработок…</div>';
     const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange) +
       "&year=" + encodeURIComponent(earningsYear) + "&month=" + encodeURIComponent(earningsMonth));
-    const archiveData = await api("/api/earnings/archive-import-status");
-    const archiveStatus = archiveData.status;
-    const archiveNotice = archiveStatus && (archiveStatus.status === "completed" || archiveStatus.status === "completed_with_conflicts")
-      ? '<div class="notice" style="margin:0 0 14px"><strong>Архив доходов 2026</strong><p style="margin:7px 0 0">' +
-          'Добавлено дней: ' + Number(archiveStatus.importedDays || 0) +
-          ' · строк: ' + Number(archiveStatus.insertedRows || 0) +
-          ' · уже совпадало: ' + Number(archiveStatus.matchedExistingDays || 0) +
-          ' · сумма новых записей: ' + money(archiveStatus.importedEarned || 0) +
-          (archiveStatus.conflicts && archiveStatus.conflicts.length
-            ? '<br>Не добавлены даты с несовпадениями: ' + archiveStatus.conflicts.map(function(item){ return esc(dateText(item.date)); }).join(", ") + '. Проверь их отдельно.'
-            : '') +
-        '</p></div>'
-      : '';
     const entries = data.entries || [];
     const isCurrentEarningsMonth = earningsYear === new Date().getFullYear() &&
       earningsMonth === new Date().getMonth() + 1;
-    const showEarningsDetails = isCurrentEarningsMonth && earningsRange !== "year";
+    const showEarningsDetails = earningsRange !== "year";
+    const visibleEntries = isCurrentEarningsMonth
+      ? entries
+      : entries.filter(function(item){
+          return /чаевые/i.test(String(item.description || ""));
+        });
+    const entriesHeading = isCurrentEarningsMonth ? "Услуги" : "Чаевые";
     content.innerHTML =
-      archiveNotice +
       '<div class="periods" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
         '<label class="field" style="flex:1;min-width:120px"><span>Год</span><select id="earnings-year">' +
           Array.from({length: Math.max(1, new Date().getFullYear() - 2026 + 1)}, function(_,i){ return new Date().getFullYear() - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
@@ -2166,10 +2158,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '</div>' +
       '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + (showEarningsDetails ? Number(data.count || 0) + ' услуг · ' : '') + esc(data.periodLabel || "") + '</div></section>' +
       (showEarningsDetails
-        ? '<div class="sectionhead"><h2>Услуги</h2><span class="count">' + entries.length + (entries.length===100?"+":"") + '</span></div>' +
-          (entries.length ? '<div>' + entries.map(function(item){
-            return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + ' · ' + Number(item.rate || 0) + '%</div></div><div><div class="earningamount">' + money(item.earned) + '</div><div class="earningbase">из ' + money(item.amount) + '</div></div></div>';
-          }).join("") + '</div>' : '<div class="empty">За этот период услуг пока нет</div>')
+        ? '<div class="sectionhead"><h2>' + entriesHeading + '</h2><span class="count">' + visibleEntries.length + (visibleEntries.length===100?"+":"") + '</span></div>' +
+          (visibleEntries.length ? '<div>' + visibleEntries.map(function(item){
+            return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + (isCurrentEarningsMonth ? ' · ' + Number(item.rate || 0) + '%' : '') + '</div></div><div><div class="earningamount">' + money(item.earned) + '</div>' + (isCurrentEarningsMonth ? '<div class="earningbase">из ' + money(item.amount) + '</div>' : '') + '</div></div>';
+          }).join("") + '</div>' : '<div class="empty">' + (isCurrentEarningsMonth ? 'За этот период услуг пока нет' : 'За этот месяц чаевых нет') + '</div>')
         : '');
     const yearSelect = content.querySelector("#earnings-year");
     const monthSelect = content.querySelector("#earnings-month");
