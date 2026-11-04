@@ -322,6 +322,277 @@ await env.DB.prepare(`
   }
 
 }
+
+const HISTORICAL_EARNINGS_2026 = [
+  ["2026-01-05", 3115],
+  ["2026-01-08", 2820],
+  ["2026-01-09", 4535],
+  ["2026-01-12", 3990],
+  ["2026-01-17", 4850],
+  ["2026-01-18", 4187.5],
+  ["2026-01-20", 4605],
+  ["2026-01-24", 3447.5],
+  ["2026-01-25", 5182.5],
+  ["2026-01-29", 4130],
+  ["2026-01-30", 1052.5],
+  ["2026-02-01", 5550],
+  ["2026-02-02", 1015],
+  ["2026-02-05", 3237.5],
+  ["2026-02-06", 4605],
+  ["2026-02-07", 5917.5],
+  ["2026-02-09", 6315],
+  ["2026-02-12", 4462.5],
+  ["2026-02-13", 1315],
+  ["2026-02-17", 3255],
+  ["2026-02-18", 2207.5],
+  ["2026-02-21", 5705],
+  ["2026-02-22", 4870],
+  ["2026-02-25", 3980],
+  ["2026-02-26", 4500],
+  ["2026-03-02", 3342.5],
+  ["2026-03-03", 910],
+  ["2026-03-04", 2522.5],
+  ["2026-03-09", 2100],
+  ["2026-03-10", 3867.5],
+  ["2026-03-12", 2695],
+  ["2026-03-13", 1400],
+  ["2026-03-23", 5182.5],
+  ["2026-03-24", 4340],
+  ["2026-03-27", 3905],
+  ["2026-03-28", 4410],
+  ["2026-03-31", 3992.5],
+  ["2026-04-01", 4025],
+  ["2026-04-04", 5215],
+  ["2026-04-05", 4360],
+  ["2026-04-08", 5082.5],
+  ["2026-04-09", 2555],
+  ["2026-04-12", 5987.5],
+  ["2026-04-16", 3535],
+  ["2026-04-17", 3607.5],
+  ["2026-04-20", 3972.5],
+  ["2026-04-21", 910],
+  ["2026-04-24", 3167.5],
+  ["2026-04-25", 4374],
+  ["2026-04-28", 2030],
+  ["2026-04-29", 4342.5],
+  ["2026-05-01", 3800],
+  ["2026-05-05", 4515],
+  ["2026-05-06", 3780],
+  ["2026-05-09", 3150],
+  ["2026-05-10", 4060],
+  ["2026-05-13", 600],
+  ["2026-05-14", 3440],
+  ["2026-05-15", 3222.5],
+  ["2026-05-17", 5775],
+  ["2026-05-18", 3447.5],
+  ["2026-05-21", 4410],
+  ["2026-05-22", 3937.5],
+  ["2026-05-23", 630],
+  ["2026-05-25", 3536],
+  ["2026-05-29", 4167.5],
+  ["2026-05-30", 5657.5],
+  ["2026-05-31", 4375],
+  ["2026-06-02", 4760],
+  ["2026-06-03", 4590],
+  ["2026-06-05", 5182.5],
+  ["2026-06-09", 5542.5],
+  ["2026-06-10", 4290],
+  ["2026-06-17", 2275],
+  ["2026-06-18", 2837.5],
+  ["2026-06-21", 3135],
+  ["2026-06-22", 6127.5],
+  ["2026-06-25", 6157.5],
+  ["2026-06-26", 3640],
+  ["2026-06-27", 1750],
+  ["2026-06-30", 5317.5],
+  ["2026-07-01", 4920],
+  ["2026-07-04", 4095],
+  ["2026-07-05", 2415],
+  ["2026-07-08", 2905],
+  ["2026-07-09", 4622.5],
+  ["2026-07-13", 4132.5],
+  ["2026-07-16", 4777.5],
+  ["2026-07-17", 3710],
+  ["2026-07-20", 3972.5],
+  ["2026-07-21", 4252.5],
+  ["2026-07-24", 2747.5],
+  ["2026-07-25", 3001.25],
+  ["2026-07-29", 3640],
+  ["2026-07-30", 4760],
+  ["2026-07-31", 2135],
+  ["2026-08-03", 4322.5],
+  ["2026-08-04", 4287.5],
+  ["2026-08-06", 3710],
+  ["2026-08-07", 1295],
+  ["2026-08-10", 2992.5],
+  ["2026-08-11", 3517.5],
+  ["2026-08-14", 980],
+  ["2026-08-15", 4777.5],
+  ["2026-08-19", 3697.5],
+  ["2026-08-20", 2642.5],
+  ["2026-08-21", 2520],
+  ["2026-08-25", 3605],
+  ["2026-08-26", 840],
+  ["2026-08-27", 4270],
+  ["2026-08-30", 4095],
+  ["2026-08-31", 2397.5],
+  ["2026-09-02", 1557.5],
+  ["2026-09-04", 2170],
+  ["2026-09-15", 3710],
+  ["2026-09-16", 3412.5],
+  ["2026-09-19", 4410],
+  ["2026-09-20", 3242.75],
+  ["2026-09-23", 3585],
+  ["2026-09-24", 2065],
+  ["2026-09-28", 2170],
+  ["2026-09-30", 4882.5]
+];
+
+const HISTORICAL_EARNINGS_ADJUSTMENTS_2026 = [
+  { date: "2026-02-21", description: "Архив: чаевые", amount: 1500, key: "tip-feb-21" },
+  { date: "2026-03-28", description: "Архив: вычет за ножницы (период до 28.03)", amount: -486, key: "scissors-mar" },
+  { date: "2026-04-05", description: "Архив: вычет за ножницы (период до 05.04)", amount: -400, key: "scissors-apr" },
+  { date: "2026-04-25", description: "Архив: чаевые за неделю 20–25.04 (дата получения не указана)", amount: 500, key: "tip-apr-week" },
+  { date: "2026-05-17", description: "Архив: вычет за ножницы (период до 17.05)", amount: -900, key: "scissors-may" },
+  { date: "2026-06-05", description: "Архив: чаевые за неделю 02–05.06 (дата получения не указана)", amount: 150, key: "tip-jun-week" },
+  { date: "2026-07-17", description: "Архив: вычет за ножницы (период до 17.07)", amount: -450, key: "scissors-jul" }
+];
+
+async function importHistoricalEarnings2026(env) {
+  const settingKey = "historical_earnings_import_2026_v1";
+  const current = await env.DB.prepare(
+    "SELECT setting_value, updated_at FROM assistant_settings WHERE setting_key = ?"
+  ).bind(settingKey).first();
+
+  if (current) {
+    let status = null;
+    try { status = JSON.parse(current.setting_value); } catch {}
+    if (status?.status === "completed" || status?.status === "completed_with_conflicts") return status;
+    if (status?.status === "running") {
+      const age = Date.now() - Date.parse(current.updated_at || "");
+      if (Number.isFinite(age) && age < 10 * 60 * 1000) return status;
+    }
+  }
+
+  const token = crypto.randomUUID();
+  const runningValue = JSON.stringify({ status: "running", token });
+  if (!current) {
+    const claim = await env.DB.prepare(`
+      INSERT OR IGNORE INTO assistant_settings (setting_key, setting_value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+    `).bind(settingKey, runningValue).run();
+    if (!claim.meta?.changes) return null;
+  } else {
+    const claim = await env.DB.prepare(`
+      UPDATE assistant_settings
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE setting_key = ? AND setting_value = ?
+    `).bind(runningValue, settingKey, current.setting_value).run();
+    if (!claim.meta?.changes) return null;
+  }
+
+  try {
+    const rowsByDate = new Map();
+    for (const [date, amount] of HISTORICAL_EARNINGS_2026) {
+      if (!rowsByDate.has(date)) rowsByDate.set(date, []);
+      rowsByDate.get(date).push({
+        description: "Архив: заработок за день",
+        amount,
+        key: date + ":day"
+      });
+    }
+    for (const item of HISTORICAL_EARNINGS_ADJUSTMENTS_2026) {
+      if (!rowsByDate.has(item.date)) rowsByDate.set(item.date, []);
+      rowsByDate.get(item.date).push({
+        description: item.description,
+        amount: item.amount,
+        key: item.date + ":" + item.key
+      });
+    }
+
+    let importedDays = 0;
+    let insertedRows = 0;
+    let matchedExistingDays = 0;
+    let importedEarnedCents = 0;
+    const conflicts = [];
+
+    for (const [serviceDate, dayRows] of rowsByDate.entries()) {
+      const expectedCents = dayRows.reduce(
+        (sum, item) => sum + Math.round(Number(item.amount) * 100), 0
+      );
+      const existing = await env.DB.prepare(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(earned), 0) AS total
+        FROM earnings_entries
+        WHERE service_date = ?
+      `).bind(serviceDate).first();
+      const existingCount = Number(existing?.count || 0);
+      const existingCents = Math.round(Number(existing?.total || 0) * 100);
+
+      if (existingCount > 0) {
+        if (existingCents === expectedCents) {
+          matchedExistingDays += 1;
+        } else {
+          conflicts.push({
+            date: serviceDate,
+            existing: existingCents / 100,
+            expected: expectedCents / 100
+          });
+        }
+        continue;
+      }
+
+      const statements = dayRows.map(item => env.DB.prepare(`
+        INSERT OR IGNORE INTO earnings_entries (
+          service_date, description, amount, rate, earned, appointment_id, source, source_id
+        ) VALUES (?, ?, ?, 100, ?, NULL, 'archive_2026', ?)
+      `).bind(serviceDate, item.description, item.amount, item.amount, item.key));
+
+      await env.DB.batch(statements);
+      const verify = await env.DB.prepare(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(earned), 0) AS total
+        FROM earnings_entries
+        WHERE service_date = ?
+      `).bind(serviceDate).first();
+      const verifiedCents = Math.round(Number(verify?.total || 0) * 100);
+
+      if (verifiedCents === expectedCents && Number(verify?.count || 0) >= dayRows.length) {
+        importedDays += 1;
+        insertedRows += dayRows.length;
+        importedEarnedCents += expectedCents;
+      } else {
+        conflicts.push({
+          date: serviceDate,
+          existing: verifiedCents / 100,
+          expected: expectedCents / 100
+        });
+      }
+    }
+
+    const result = {
+      status: conflicts.length ? "completed_with_conflicts" : "completed",
+      importedDays,
+      insertedRows,
+      matchedExistingDays,
+      importedEarned: importedEarnedCents / 100,
+      conflicts
+    };
+    await env.DB.prepare(`
+      UPDATE assistant_settings
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE setting_key = ?
+    `).bind(JSON.stringify(result), settingKey).run();
+    return result;
+  } catch (error) {
+    const result = { status: "failed", message: String(error?.message || error).slice(0, 300) };
+    await env.DB.prepare(`
+      UPDATE assistant_settings
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE setting_key = ?
+    `).bind(JSON.stringify(result), settingKey).run();
+    throw error;
+  }
+}
+
 async function getGroomingCard(env, dogId) {
   return env.DB.prepare(`
     SELECT
@@ -4577,6 +4848,7 @@ async function handleWebApi(request, env) {
     if (auth.error) return webApiResponse({ error: auth.error }, auth.status);
 
     await initializeDatabase(env);
+    await importHistoricalEarnings2026(env);
     if (auth.standalone) auth.user = { id: "web-app" };
 
     const date = localDate();
@@ -5336,6 +5608,15 @@ async function handleWebApi(request, env) {
         rate,
         earned
       });
+    }
+
+    if (request.method === "GET" && path === "/api/earnings/archive-import-status") {
+      const row = await env.DB.prepare(
+        "SELECT setting_value FROM assistant_settings WHERE setting_key = ?"
+      ).bind("historical_earnings_import_2026_v1").first();
+      let status = null;
+      try { status = row ? JSON.parse(row.setting_value) : null; } catch {}
+      return webApiResponse({ status });
     }
 
     if (request.method === "GET" && path === "/api/earnings") {
