@@ -2126,8 +2126,22 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     setHead("Заработок","Учёт услуг и начислений");
     content.innerHTML = '<div class="loading">Загружаю заработок…</div>';
     const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange));
+    const archiveData = await api("/api/earnings/archive-import-status");
+    const archiveStatus = archiveData.status;
+    const archiveNotice = archiveStatus && (archiveStatus.status === "completed" || archiveStatus.status === "completed_with_conflicts")
+      ? '<div class="notice" style="margin:0 0 14px"><strong>Архив доходов 2026</strong><p style="margin:7px 0 0">' +
+          'Добавлено дней: ' + Number(archiveStatus.importedDays || 0) +
+          ' · строк: ' + Number(archiveStatus.insertedRows || 0) +
+          ' · уже совпадало: ' + Number(archiveStatus.matchedExistingDays || 0) +
+          ' · сумма новых записей: ' + money(archiveStatus.importedEarned || 0) +
+          (archiveStatus.conflicts && archiveStatus.conflicts.length
+            ? '<br>Не добавлены даты с несовпадениями: ' + archiveStatus.conflicts.map(function(item){ return esc(dateText(item.date)); }).join(", ") + '. Проверь их отдельно.'
+            : '') +
+        '</p></div>'
+      : '';
     const entries = data.entries || [];
     content.innerHTML =
+      archiveNotice +
       '<div class="periods">' +
         '<button class="pill ' + (earningsRange==="today"?"active":"") + '" data-range="today">Сегодня</button>' +
         '<button class="pill ' + (earningsRange==="month"?"active":"") + '" data-range="month">Этот месяц</button>' +
