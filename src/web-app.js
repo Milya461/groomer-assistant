@@ -2145,6 +2145,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div class="periods">' +
         '<button class="pill ' + (earningsRange==="today"?"active":"") + '" data-range="today">Сегодня</button>' +
         '<button class="pill ' + (earningsRange==="month"?"active":"") + '" data-range="month">Этот месяц</button>' +
+        '<button class="pill ' + (earningsRange==="year"?"active":"") + '" data-range="year">С начала года</button>' +
         '<button class="pill ' + (earningsRange==="first-half"?"active":"") + '" data-range="first-half">1–15</button>' +
         '<button class="pill ' + (earningsRange==="second-half"?"active":"") + '" data-range="second-half">16–конец</button>' +
       '</div>' +
