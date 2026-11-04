@@ -5625,27 +5625,39 @@ async function handleWebApi(request, env) {
       let end = date;
       let periodLabel = "Сегодня";
 
-      const year = Number(date.slice(0, 4));
-      const monthNumber = Number(date.slice(5, 7));
-      const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+      const currentYear = Number(date.slice(0, 4));
+      const selectedYear = Number(url.searchParams.get("year") || currentYear);
+      const selectedMonth = Number(url.searchParams.get("month") || date.slice(5, 7));
+      if (!Number.isInteger(selectedYear) || selectedYear < 2000 || selectedYear > currentYear + 1 ||
+          !Number.isInteger(selectedMonth) || selectedMonth < 1 || selectedMonth > 12) {
+        return webApiResponse({ error: "Некорректный месяц или год." }, 400);
+      }
+      const selectedMonthText = String(selectedMonth).padStart(2, "0");
+      const selectedMonthStart = String(selectedYear) + "-" + selectedMonthText + "-01";
+      const selectedMonthEndDay = new Date(Date.UTC(selectedYear, selectedMonth, 0)).getUTCDate();
+      const selectedMonthEnd = String(selectedMonthEndDay).padStart(2, "0");
+      const selectedMonthEndDate = String(selectedYear) + "-" + selectedMonthText + "-" + selectedMonthEnd;
 
       if (range === "year") {
-        start = String(year) + "-01-01";
-        end = date;
-        periodLabel = "01.01–" + date.slice(8, 10) + "." + date.slice(5, 7) + "." + year;
+        start = String(selectedYear) + "-01-01";
+        end = String(selectedYear) + "-12-31";
+        periodLabel = "2026 год".replace("2026", String(selectedYear));
       } else if (range === "month") {
-        start = month + "-01";
-        end = month + "-" + String(monthEnd).padStart(2, "0");
-        periodLabel = "01." + date.slice(5, 7) + "–" + String(monthEnd).padStart(2, "0") + "." + date.slice(5, 7);
+        start = selectedMonthStart;
+        end = selectedMonthEndDate;
+        periodLabel = "01." + selectedMonthText + "–" + selectedMonthEnd + "." + selectedMonthText + "." + selectedYear;
       } else if (range === "first-half") {
-        start = month + "-01";
-        end = month + "-15";
-        periodLabel = "01–15." + date.slice(5, 7);
+        start = selectedMonthStart;
+        end = String(selectedYear) + "-" + selectedMonthText + "-15";
+        periodLabel = "01–15." + selectedMonthText + "." + selectedYear;
       } else if (range === "second-half") {
-        start = month + "-16";
-        end = month + "-" + String(monthEnd).padStart(2, "0");
-        periodLabel = "16–" + String(monthEnd).padStart(2, "0") + "." + date.slice(5, 7);
-      } else if (range !== "today") {
+        start = String(selectedYear) + "-" + selectedMonthText + "-16";
+        end = selectedMonthEndDate;
+        periodLabel = "16–" + selectedMonthEnd + "." + selectedMonthText + "." + selectedYear;
+      } else if (range === "today") {
+        start = date;
+        end = date;
+      } else {
         return webApiResponse({ error: "Неизвестный период." }, 400);
       }
 
@@ -5660,7 +5672,7 @@ async function handleWebApi(request, env) {
         FROM earnings_entries
         WHERE service_date >= ? AND service_date <= ?
         ORDER BY service_date DESC, id DESC
-        LIMIT ${range === "year" ? 500 : 100}
+        LIMIT ${range === "year" ? 1000 : 500}
       `).bind(start, end).all();
 
       return webApiResponse({
