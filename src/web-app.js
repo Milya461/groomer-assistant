@@ -359,7 +359,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   const subtitle = document.getElementById("page-subtitle");
   let currentScreen = "today";
   let petQuery = "";
-  let earningsRange = "today";
+  let earningsRange = "month";\n  let earningsYear = new Date().getFullYear();\n  let earningsMonth = new Date().getMonth() + 1;
   let calendarMonth = "";
   let calendarSelectedDate = "";
   let lastDashboard = null;
@@ -2125,7 +2125,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     currentScreen = "earnings";
     setHead("Заработок","Учёт услуг и начислений");
     content.innerHTML = '<div class="loading">Загружаю заработок…</div>';
-    const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange));
+    const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange) +
+      "&year=" + encodeURIComponent(earningsYear) + "&month=" + encodeURIComponent(earningsMonth));
     const archiveData = await api("/api/earnings/archive-import-status");
     const archiveStatus = archiveData.status;
     const archiveNotice = archiveStatus && (archiveStatus.status === "completed" || archiveStatus.status === "completed_with_conflicts")
@@ -2142,18 +2143,40 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const entries = data.entries || [];
     content.innerHTML =
       archiveNotice +
+      '<div class="periods" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
+        '<label class="field" style="flex:1;min-width:120px"><span>Год</span><select id="earnings-year">' +
+          Array.from({length: Math.max(1, new Date().getFullYear() - 2026 + 1)}, function(_,i){ return new Date().getFullYear() - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
+        '</select></label>' +
+        '<label class="field" style="flex:1;min-width:140px"><span>Месяц</span><select id="earnings-month">' +
+          ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"].map(function(name,i){ return '<option value="' + (i+1) + '"' + (i+1===earningsMonth?' selected':'') + '>' + name + '</option>'; }).join("") +
+        '</select></label>' +
+      '</div>' +
       '<div class="periods">' +
-        '<button class="pill ' + (earningsRange==="today"?"active":"") + '" data-range="today">Сегодня</button>' +
-        '<button class="pill ' + (earningsRange==="month"?"active":"") + '" data-range="month">Этот месяц</button>' +
-        '<button class="pill ' + (earningsRange==="year"?"active":"") + '" data-range="year">С начала года</button>' +
-        '<button class="pill ' + (earningsRange==="first-half"?"active":"") + '" data-range="first-half">1–15</button>' +
-        '<button class="pill ' + (earningsRange==="second-half"?"active":"") + '" data-range="second-half">16–конец</button>' +
+        '<button class="pill ' + (earningsRange==="month"?"active":"") + '" data-range="month">Весь месяц</button>' +
+        '<button class="pill ' + (earningsRange==="year"?"active":"") + '" data-range="year">Весь год</button>' +
+        (earningsYear===new Date().getFullYear() && earningsMonth===new Date().getMonth()+1
+          ? '<button class="pill ' + (earningsRange==="first-half"?"active":"") + '" data-range="first-half">1–15</button>' +
+            '<button class="pill ' + (earningsRange==="second-half"?"active":"") + '" data-range="second-half">16–' + new Date(earningsYear,earningsMonth,0).getDate() + '</button>'
+          : '') +
       '</div>' +
       '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + Number(data.count || 0) + ' услуг · ' + esc(data.periodLabel || "") + '</div></section>' +
       '<div class="sectionhead"><h2>Услуги</h2><span class="count">' + entries.length + (entries.length===100?"+":"") + '</span></div>' +
       (entries.length ? '<div>' + entries.map(function(item){
         return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + ' · ' + Number(item.rate || 0) + '%</div></div><div><div class="earningamount">' + money(item.earned) + '</div><div class="earningbase">из ' + money(item.amount) + '</div></div></div>';
       }).join("") + '</div>' : '<div class="empty">За этот период услуг пока нет</div>');
+    const yearSelect = content.querySelector("#earnings-year");
+    const monthSelect = content.querySelector("#earnings-month");
+    yearSelect.addEventListener("change", function(){
+      earningsYear = Number(yearSelect.value);
+      if (earningsYear === new Date().getFullYear() && earningsMonth > new Date().getMonth()+1) earningsMonth = new Date().getMonth()+1;
+      if (earningsRange === "first-half" || earningsRange === "second-half") earningsRange = "month";
+      renderEarnings().catch(showError);
+    });
+    monthSelect.addEventListener("change", function(){
+      earningsMonth = Number(monthSelect.value);
+      if (earningsRange === "first-half" || earningsRange === "second-half") earningsRange = "month";
+      renderEarnings().catch(showError);
+    });
     content.querySelectorAll("[data-range]").forEach(function(button){
       button.addEventListener("click",function(){
         earningsRange = button.dataset.range;
