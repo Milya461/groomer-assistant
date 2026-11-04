@@ -359,7 +359,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   const subtitle = document.getElementById("page-subtitle");
   let currentScreen = "today";
   let petQuery = "";
-  let earningsRange = "month";\n  let earningsYear = new Date().getFullYear();\n  let earningsMonth = new Date().getMonth() + 1;
+  let earningsRange = "month";
+  let earningsYear = new Date().getFullYear();
+  let earningsMonth = new Date().getMonth() + 1;
   let calendarMonth = "";
   let calendarSelectedDate = "";
   let lastDashboard = null;
