@@ -5629,7 +5629,11 @@ async function handleWebApi(request, env) {
       const monthNumber = Number(date.slice(5, 7));
       const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
 
-      if (range === "month") {
+      if (range === "year") {
+        start = String(year) + "-01-01";
+        end = date;
+        periodLabel = "01.01–" + date.slice(8, 10) + "." + date.slice(5, 7) + "." + year;
+      } else if (range === "month") {
         start = month + "-01";
         end = month + "-" + String(monthEnd).padStart(2, "0");
         periodLabel = "01." + date.slice(5, 7) + "–" + String(monthEnd).padStart(2, "0") + "." + date.slice(5, 7);
@@ -5656,7 +5660,7 @@ async function handleWebApi(request, env) {
         FROM earnings_entries
         WHERE service_date >= ? AND service_date <= ?
         ORDER BY service_date DESC, id DESC
-        LIMIT 100
+        LIMIT ${range === "year" ? 500 : 100}
       `).bind(start, end).all();
 
       return webApiResponse({
