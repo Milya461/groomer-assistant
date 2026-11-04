@@ -2143,6 +2143,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '</p></div>'
       : '';
     const entries = data.entries || [];
+    const isCurrentEarningsMonth = earningsYear === new Date().getFullYear() &&
+      earningsMonth === new Date().getMonth() + 1;
+    const showEarningsDetails = isCurrentEarningsMonth && earningsRange !== "year";
     content.innerHTML =
       archiveNotice +
       '<div class="periods" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
@@ -2156,16 +2159,18 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div class="periods">' +
         '<button class="pill ' + (earningsRange==="month"?"active":"") + '" data-range="month">Весь месяц</button>' +
         '<button class="pill ' + (earningsRange==="year"?"active":"") + '" data-range="year">Весь год</button>' +
-        (earningsYear===new Date().getFullYear() && earningsMonth===new Date().getMonth()+1
+        (isCurrentEarningsMonth
           ? '<button class="pill ' + (earningsRange==="first-half"?"active":"") + '" data-range="first-half">1–15</button>' +
             '<button class="pill ' + (earningsRange==="second-half"?"active":"") + '" data-range="second-half">16–' + new Date(earningsYear,earningsMonth,0).getDate() + '</button>'
           : '') +
       '</div>' +
-      '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + Number(data.count || 0) + ' услуг · ' + esc(data.periodLabel || "") + '</div></section>' +
-      '<div class="sectionhead"><h2>Услуги</h2><span class="count">' + entries.length + (entries.length===100?"+":"") + '</span></div>' +
-      (entries.length ? '<div>' + entries.map(function(item){
-        return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + ' · ' + Number(item.rate || 0) + '%</div></div><div><div class="earningamount">' + money(item.earned) + '</div><div class="earningbase">из ' + money(item.amount) + '</div></div></div>';
-      }).join("") + '</div>' : '<div class="empty">За этот период услуг пока нет</div>');
+      '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + (showEarningsDetails ? Number(data.count || 0) + ' услуг · ' : '') + esc(data.periodLabel || "") + '</div></section>' +
+      (showEarningsDetails
+        ? '<div class="sectionhead"><h2>Услуги</h2><span class="count">' + entries.length + (entries.length===100?"+":"") + '</span></div>' +
+          (entries.length ? '<div>' + entries.map(function(item){
+            return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + ' · ' + Number(item.rate || 0) + '%</div></div><div><div class="earningamount">' + money(item.earned) + '</div><div class="earningbase">из ' + money(item.amount) + '</div></div></div>';
+          }).join("") + '</div>' : '<div class="empty">За этот период услуг пока нет</div>')
+        : '');
     const yearSelect = content.querySelector("#earnings-year");
     const monthSelect = content.querySelector("#earnings-month");
     yearSelect.addEventListener("change", function(){
