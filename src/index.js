@@ -5302,7 +5302,7 @@ async function handleWebApi(request, env) {
       const query = String(url.searchParams.get("q") || "").trim().slice(0, 100);
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
-        SELECT id, name, species, breed, breed_variant, notes, warnings,
+        SELECT id, name, species, breed, breed_variant, comment,
                (
                  SELECT pcp.dog_id
                  FROM pet_cover_photos pcp
