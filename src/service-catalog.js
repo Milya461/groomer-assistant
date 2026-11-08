@@ -137,6 +137,18 @@ const additionalServices = [
   item("addon:paw-pads", "Уход за подушечками лап", 300, {
     type: "addon"
   }),
+  item("addon:face-trim", "Окантовка морды", 0, {
+    type: "addon",
+    editable: true
+  }),
+  item("addon:paw-trim", "Окантовка лап", 0, {
+    type: "addon",
+    editable: true
+  }),
+  item("addon:butt-trim", "Окантовка попы", 0, {
+    type: "addon",
+    editable: true
+  }),
   item("addon:mat-removal", "Колтуны", 0, {
     type: "addon",
     editable: true
