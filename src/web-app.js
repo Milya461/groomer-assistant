@@ -1531,7 +1531,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '</select></label>';
       }
       if (type === "textarea") {
-        return '<label class="field"><span>' + esc(label) + '</span><textarea class="formtextarea" name="' + key + '" rows="2">' + esc(pet[key] || "") + '</textarea></label>';
+        return '<label class="field"><span>' + esc(label) + '</span><textarea class="formtextarea" name="' + key + '" rows="6">' + esc(pet[key] || "") + '</textarea></label>';
       }
       const fieldMarkup = '<label class="field"><span>' + esc(label) + '</span><input name="' + key + '" value="' + esc(pet[key] || "") + '" ' + (key === "name" ? 'required maxlength="100"' : "") + '></label>';
       if (key !== "breed") return fieldMarkup;
@@ -1638,7 +1638,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
   async function renderPets() {
     currentScreen = "pets";
-    setHead("Питомцы","Карточки, особенности и история ухода");
+    setHead("Питомцы","Карточки, комментарии и история ухода");
     clearObjectUrls();
     content.innerHTML =
       '<div class="searchbar"><input id="pet-search" placeholder="Найти питомца по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
