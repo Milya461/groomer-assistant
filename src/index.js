@@ -4976,6 +4976,7 @@ async function handleWebApi(request, env) {
         contents: {
           pets: petsResult.results || [],
           appointments: appointmentsResult.results || [],
+          visits: (appointmentsResult.results || []).filter(item => ["completed", "in_progress", "cancelled", "no_show"].includes(item.status)),
           earnings: earningsResult.results || [],
           workShifts: shiftsResult.results || [],
           groomingCards: groomingCardsResult.results || [],
