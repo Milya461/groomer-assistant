@@ -569,8 +569,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   function appointmentStatusActionsHtml(item) {
     if (!["scheduled","waiting"].includes(item.status)) return "";
     const id = Number(item.id);
+    const today = moscowISODate();
+    const currentTime = new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Moscow",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date());
+    const canMarkNoShow = item.appointment_date < today || (item.appointment_date === today && String(item.appointment_time || "00:00") <= currentTime);
     return '<button type="button" class="inlineaction" data-appointment-status="cancelled" data-appointment-id="' + id + '">Отменить</button>' +
-      '<button type="button" class="inlineaction" data-appointment-status="no_show" data-appointment-id="' + id + '">Не пришёл</button>';
+      (canMarkNoShow ? '<button type="button" class="inlineaction" data-appointment-status="no_show" data-appointment-id="' + id + '">Не пришёл</button>' : '');
+  }
+  function visitBeforeUploadHtml(item) {
+    if (!["scheduled","waiting","in_progress"].includes(item.status)) return "";
+    return '<label class="inlineaction filelabel">Фото до<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>';
   }
   function bindAppointmentStatusButtons(container, afterSave) {
     container.querySelectorAll("[data-appointment-status]").forEach(function(button) {
@@ -733,6 +740,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '</button>' + action + editTimeAction +
       (editTimeAction ? '<div data-start-time-editor-slot="' + id + '"></div>' : '') +
       appointmentStatusActionsHtml(item) +
+      visitBeforeUploadHtml(item) +
       '<div class="visit-detail-panel" id="visit-detail-' + id + '" hidden></div>' +
     '</div></div>';
   }
@@ -1216,6 +1224,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
     bindStartTimeEditorButtons(content, function(){return renderToday();});
     bindAppointmentStatusButtons(content, function(){return renderToday();});
+    bindVisitPhotoUpload(content, function(){return renderToday();});
   }
   async function openUnscheduledServiceForm() {
     const slot = document.getElementById("unscheduled-service-slot");
@@ -2175,8 +2184,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       return '<article class="history-card">' +
         '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
         '<div class="history-time">' + esc(time) + '</div></div>' +
-        '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
-        '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
+        (["cancelled","no_show"].includes(item.status) ? "" : '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
+        '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
         '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
         '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
         visitPhotoSectionHtml(item) +
@@ -2188,7 +2197,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     content.innerHTML =
       '<div class="searchbar"><input id="visit-search" placeholder="Найти по имени питомца" value="' + esc(visitsSearchQuery) + '" autocomplete="off"><button type="button" id="visit-search-btn">Найти</button></div>' +
-      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">Последние записи и выполненные услуги</div></div><span class="count">' + total + ' визитов</span></div>' +
+      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">История визитов, отмен и неявок</div></div><span class="count">' + total + ' визитов</span></div>' +
       (visits.length ? '<div id="visit-history-list">' + visitCards + '</div>' :
         '<div class="empty">' + (visitsSearchQuery ? 'По этому имени визитов не найдено.' : 'История пока пустая. Завершённые визиты появятся здесь.') + '</div>') +
       (data.hasMore ? '<button type="button" class="btn secondary full" id="visits-load-more">Загрузить ещё визиты</button>' : '');
