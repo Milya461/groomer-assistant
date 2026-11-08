@@ -235,9 +235,13 @@ async function migrateLegacyPetComments(env) {
 
   try {
     const rows = await env.DB.prepare(`
-      SELECT id, comment, coat_features, matting_tendency, sensitive_areas,
-             clipper_reaction, dryer_reaction, nail_clipper_reaction, warnings, notes
-      FROM dogs
+      SELECT d.id, d.comment, d.coat_features, d.matting_tendency, d.sensitive_areas,
+             d.clipper_reaction, d.dryer_reaction, d.nail_clipper_reaction,
+             d.warnings, d.notes,
+             gc.face_length, gc.tail_length, gc.head_shape, gc.paws_shape,
+             gc.attachments, gc.blades, gc.owner_preferences, gc.next_visit_changes
+      FROM dogs d
+      LEFT JOIN grooming_cards gc ON gc.dog_id = d.id
     `).all();
 
     const fields = [
@@ -248,7 +252,15 @@ async function migrateLegacyPetComments(env) {
       ["dryer_reaction", "Реакция на фен"],
       ["nail_clipper_reaction", "Реакция на когтерез"],
       ["warnings", "Предупреждения"],
-      ["notes", "Заметки"]
+      ["notes", "Заметки"],
+      ["face_length", "Старая длина морды"],
+      ["tail_length", "Старая длина хвоста"],
+      ["head_shape", "Старая форма головы"],
+      ["paws_shape", "Старая форма лап"],
+      ["attachments", "Старые насадки"],
+      ["blades", "Старые ножи"],
+      ["owner_preferences", "Старые пожелания владельца"],
+      ["next_visit_changes", "Старые изменения к следующему визиту"]
     ];
 
     let migratedPets = 0;
