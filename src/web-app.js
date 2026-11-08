@@ -206,7 +206,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   h1{font-size:31px;margin:21px 0 7px}
   .subtitle{font-size:12px}
   main{padding-top:19px;min-height:280px}
-  .mobile-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;z-index:20;bottom:0;left:0;right:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);gap:3px}
+  .mobile-nav{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));position:fixed;z-index:20;bottom:0;left:0;right:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);gap:3px}
   .mobile-nav .tab{display:flex;flex-direction:column;justify-content:center;gap:5px;padding:7px 2px;border-radius:9px;font-size:9px;text-align:center;align-items:center}
   .mobile-nav .tab-symbol{font-size:17px;width:auto;flex:none}
   .metricgrid{gap:7px;margin-bottom:24px}
@@ -332,6 +332,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
       <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
       <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Заработок</span></button>
+       <button class="tab" data-screen="service-times"><span class="tab-symbol">◷</span><span>Время услуг</span></button>
     </nav>
     <div class="sidebar-bottom"><div class="statusline"><span class="status-dot"></span><span>Личное рабочее пространство</span></div><div class="sidebar-footnote">Все данные остаются в базе Pretty Dogs.</div></div>
   </aside>
@@ -350,6 +351,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     <button class="tab" data-screen="pets"><span class="tab-symbol">◈</span><span>Питомцы</span></button>
     <button class="tab" data-screen="visits"><span class="tab-symbol">↗</span><span>Визиты</span></button>
     <button class="tab" data-screen="earnings"><span class="tab-symbol">₽</span><span>Доход</span></button>
+     <button class="tab" data-screen="service-times"><span class="tab-symbol">◷</span><span>Время</span></button>
   </nav>
 </div>
 <script>
@@ -364,6 +366,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let earningsRange = "month";
   let earningsYear = new Date().getFullYear();
   let earningsMonth = new Date().getMonth() + 1;
+  let serviceTimeQuery = "";
   let calendarMonth = "";
   let calendarSelectedDate = "";
   let lastDashboard = null;
@@ -2355,6 +2358,57 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
   }
 
+  async function renderServiceTimes() {
+    currentScreen = "service-times";
+    setHead("Время услуг", "Средняя длительность по породам и услугам");
+    content.innerHTML = '<div class="loading">Считаю среднее время по завершённым визитам…</div>';
+    const data = await api("/api/service-time-stats");
+    const stats = data.stats || [];
+
+    function rowsHtml(query) {
+      const needle = String(query || "").trim().toLocaleLowerCase("ru-RU");
+      const filtered = stats.filter(function(item) {
+        return !needle || (String(item.breed || "") + " " + String(item.service || ""))
+          .toLocaleLowerCase("ru-RU").includes(needle);
+      });
+      if (!filtered.length) {
+        return '<div class="empty">' +
+          (stats.length ? 'По этому запросу ничего не найдено.' : 'Пока нет завершённых визитов с сохранённым временем и указанной породой и услугой. После новых завершённых визитов статистика появится автоматически.') +
+          '</div>';
+      }
+      return filtered.map(function(item) {
+        const visitCount = Number(item.visitsCount || 0);
+        return '<article class="history-card">' +
+          '<div class="history-top"><div><div class="history-name">' + esc(item.breed) + '</div>' +
+          '<div class="history-meta">' + esc(item.service) + '</div></div>' +
+          '<div class="history-time">' + esc(formatDuration(item.averageMinutes)) + '</div></div>' +
+          '<div class="history-meta">Среднее время · ' + visitCount + ' ' +
+          (visitCount === 1 ? 'визит' : visitCount >= 2 && visitCount <= 4 ? 'визита' : 'визитов') +
+          (item.lastVisit ? ' · последний ' + esc(dateText(item.lastVisit)) : '') +
+          '</div></article>';
+      }).join("");
+    }
+
+    content.innerHTML =
+      '<div class="hero"><div class="eyebrow">ФАКТИЧЕСКАЯ ДЛИТЕЛЬНОСТЬ</div>' +
+        '<div class="money">' + Number(data.visitsCount || 0) + '</div>' +
+        '<div class="smallmuted">завершённых визитов учтено в статистике</div></div>' +
+      '<div class="searchbar"><input id="service-time-search" type="search" placeholder="Найти породу или услугу" autocomplete="off"></div>' +
+      '<div class="sectionhead" style="margin-top:0"><div><h2>Среднее время</h2>' +
+        '<div class="smallmuted" style="margin-top:5px">Отдельно для каждой породы и основной услуги</div></div>' +
+        '<span class="count">' + stats.length + ' сочетаний</span></div>' +
+      '<div class="smallmuted" style="margin:-3px 0 12px">Время считается от начала до завершения всего визита. Дополнительные услуги, выполненные вместе с основной, тоже входят в длительность.</div>' +
+      '<div id="service-time-list">' + rowsHtml("") + '</div>';
+
+    const search = document.getElementById("service-time-search");
+    const list = document.getElementById("service-time-list");
+    search.value = serviceTimeQuery;
+    search.addEventListener("input", function() {
+      serviceTimeQuery = search.value;
+      list.innerHTML = rowsHtml(serviceTimeQuery);
+    });
+  }
+
   async function navigate(screen) {
     currentScreen = screen;
     clearObjectUrls();
@@ -2364,6 +2418,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       else if(screen==="pets") await renderPets();
       else if(screen==="visits") await renderVisits();
       else if(screen==="earnings") await renderEarnings();
+       else if(screen==="service-times") await renderServiceTimes();
     } catch(error){showError(error);}
   }
   document.querySelectorAll(".tab").forEach(function(button){
