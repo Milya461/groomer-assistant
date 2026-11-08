@@ -378,6 +378,15 @@ await env.DB.prepare(`
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS service_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      services_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
 
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS assistant_appointment_state (
@@ -4938,6 +4947,40 @@ async function handleWebApi(request, env) {
       return webApiResponse(getServiceOptions(pet));
     }
 
+    if (request.method === "GET" && path === "/api/service-templates") {
+      const result = await env.DB.prepare("SELECT id, name, services_json FROM service_templates ORDER BY name COLLATE NOCASE, id").all();
+      return webApiResponse({
+        templates: (result.results || []).map(row => {
+          let services = [];
+          try { const parsed = JSON.parse(row.services_json || "[]"); if (Array.isArray(parsed)) services = parsed; } catch {}
+          return { id: Number(row.id), name: row.name, services };
+        })
+      });
+    }
+
+    if (request.method === "POST" && path === "/api/service-templates") {
+      let body;
+      try { body = await request.json(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать шаблон услуг." }, 400); }
+      const name = String(body.name || "").trim().slice(0, 60);
+      const rawServices = Array.isArray(body.services) ? body.services : [];
+      if (!name) return webApiResponse({ error: "Укажи название набора." }, 400);
+      if (rawServices.length < 1 || rawServices.length > 20) return webApiResponse({ error: "В наборе должно быть от 1 до 20 услуг." }, 400);
+      const services = rawServices.map(item => ({ id: String(item && item.id || "").trim().slice(0, 100), size: String(item && item.size || "").trim().slice(0, 50) || null }));
+      if (services.some(item => !/^[a-z0-9:_-]+$/i.test(item.id))) return webApiResponse({ error: "В наборе есть некорректная услуга." }, 400);
+      if (services.filter(item => item.id.startsWith("groom:")).length !== 1) return webApiResponse({ error: "В наборе должна быть ровно одна основная услуга." }, 400);
+      await env.DB.prepare("INSERT INTO service_templates (name, services_json) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET services_json = excluded.services_json, updated_at = CURRENT_TIMESTAMP").bind(name, JSON.stringify(services)).run();
+      const saved = await env.DB.prepare("SELECT id, name, services_json FROM service_templates WHERE name = ? COLLATE NOCASE").bind(name).first();
+      return webApiResponse({ ok: true, template: { id: Number(saved.id), name: saved.name, services: JSON.parse(saved.services_json || "[]") } });
+    }
+
+    if (request.method === "DELETE" && path === "/api/service-templates") {
+      const id = Number(url.searchParams.get("id") || 0);
+      if (!Number.isSafeInteger(id) || id <= 0) return webApiResponse({ error: "Не удалось определить набор." }, 400);
+      const removed = await env.DB.prepare("DELETE FROM service_templates WHERE id = ?").bind(id).run();
+      if (!removed.meta?.changes) return webApiResponse({ error: "Набор не найден." }, 404);
+      return webApiResponse({ ok: true, id });
+    }
     if (request.method === "GET" && path === "/api/work-shifts") {
       const targetMonth = String(url.searchParams.get("month") || month);
       if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
