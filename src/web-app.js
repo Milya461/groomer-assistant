@@ -564,7 +564,71 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.innerHTML = '<div class="notice"><strong>Не удалось открыть приложение</strong><p>' + esc(error && error.message ? error.message : "Попробуй открыть его ещё раз.") + '</p></div>';
   }
   function statusText(status) {
-    return ({scheduled:"Запланирован",waiting:"Ожидаем",in_progress:"В работе",completed:"Завершён",cancelled:"Отменён",rescheduled:"Перенесён",skipped:"Пропущен"})[status] || status || "—";
+    return ({scheduled:"Запланирован",waiting:"Ожидаем",in_progress:"В работе",completed:"Завершён",cancelled:"Отменён",no_show:"Не пришёл",rescheduled:"Перенесён",skipped:"Пропущен"})[status] || status || "—";
+  }
+  function appointmentStatusActionsHtml(item) {
+    if (!["scheduled","waiting"].includes(item.status)) return "";
+    const id = Number(item.id);
+    return '<button type="button" class="inlineaction" data-appointment-status="cancelled" data-appointment-id="' + id + '">Отменить</button>' +
+      '<button type="button" class="inlineaction" data-appointment-status="no_show" data-appointment-id="' + id + '">Не пришёл</button>';
+  }
+  function bindAppointmentStatusButtons(container, afterSave) {
+    container.querySelectorAll("[data-appointment-status]").forEach(function(button) {
+      button.addEventListener("click", async function() {
+        const nextStatus = button.dataset.appointmentStatus;
+        const isNoShow = nextStatus === "no_show";
+        const message = isNoShow
+          ? "Отметить неявку? Запись останется в истории, заработок не начисляется."
+          : "Отменить запись? Она останется в истории, заработок не начисляется.";
+        if (!window.confirm(message)) return;
+        button.disabled = true;
+        try {
+          await api("/api/appointments/" + Number(button.dataset.appointmentId) + "/status", {
+            method:"POST", body:JSON.stringify({status:nextStatus})
+          });
+          await afterSave();
+        } catch(error) {
+          showError(error);
+          button.disabled = false;
+        }
+      });
+    });
+  }
+  function visitPhotoSectionHtml(item) {
+    const photos = item.photos || [];
+    const before = photos.filter(function(photo){return photo.photo_type === "before";});
+    const after = photos.filter(function(photo){return photo.photo_type === "after";});
+    function tiles(items, label) {
+      return items.length
+        ? '<div class="history-photos">' + items.map(function(photo) {
+            return '<div class="photo-tile history-photo"><img alt="Фото ' + label + '" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+          }).join("") + '</div>'
+        : '<div class="smallmuted">Фотографий пока нет.</div>';
+    }
+    const canUpload = !["cancelled","no_show"].includes(item.status);
+    return '<div class="history-photo-section"><div class="smallmuted history-photo-label">До стрижки</div>' + tiles(before,"до стрижки") +
+      (canUpload ? '<label class="btn secondary filelabel history-photo-label">Добавить фото до<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
+      '<div class="smallmuted history-photo-label">После стрижки</div>' + tiles(after,"после стрижки") +
+      (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после<input type="file" accept="image/*" data-visit-photo-upload="after" data-appointment-id="' + Number(item.id) + '" /></label>' : '') + '</div>';
+  }
+  function bindVisitPhotoUpload(container, afterSave) {
+    container.querySelectorAll("[data-visit-photo-upload]").forEach(function(input) {
+      input.addEventListener("change", async function() {
+        const imageFile = input.files && input.files[0];
+        if (!imageFile) return;
+        if (!String(imageFile.type || "").startsWith("image/")) { showError(new Error("Выбери изображение.")); return; }
+        if (imageFile.size > 10 * 1024 * 1024) { showError(new Error("Размер фотографии должен быть не больше 10 МБ.")); return; }
+        input.disabled = true;
+        try {
+          const formData = new FormData();
+          const preparedPhoto = await preparePhotoForStorage(imageFile);
+          formData.append("photo", preparedPhoto, preparedPhoto.name);
+          const type = input.dataset.visitPhotoUpload;
+          await api("/api/appointments/" + Number(input.dataset.appointmentId) + "/" + type + "-photos", { method:"POST", body:formData });
+          await afterSave();
+        } catch(error) { showError(error); input.disabled = false; }
+      });
+    });
   }
   function bindStartTimeEditorButtons(container, afterSave) {
     container.querySelectorAll("[data-edit-start-time]").forEach(function(button) {
@@ -668,6 +732,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<span class="visit-record-hint">Открыть запись · услуги ↓</span>' +
       '</button>' + action + editTimeAction +
       (editTimeAction ? '<div data-start-time-editor-slot="' + id + '"></div>' : '') +
+      appointmentStatusActionsHtml(item) +
       '<div class="visit-detail-panel" id="visit-detail-' + id + '" hidden></div>' +
     '</div></div>';
   }
@@ -989,6 +1054,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">' +
         '<button type="button" class="btn" id="add-appointment" style="flex:1 1 145px">＋ Добавить запись</button>' +
         '<button type="button" class="btn secondary" id="add-unscheduled-service" style="flex:1 1 145px">＋ Услуга без записи</button>' +
+        '<button type="button" class="btn secondary" id="download-backup" style="flex:1 1 145px">↓ Резервная копия</button>' +
       '</div>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
       '<div id="visit-action-panel"></div><div id="unscheduled-service-slot"></div><div id="appointment-editor-slot"></div>';
@@ -1012,6 +1078,25 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       openAppointmentEditor(null, moscowISODate()).catch(showError);
     });
 
+    document.getElementById("download-backup").addEventListener("click",async function() {
+      const button = document.getElementById("download-backup");
+      button.disabled = true;
+      button.textContent = "Готовлю копию…";
+      try {
+        const backup = await api("/api/backup");
+        const blob = new Blob([JSON.stringify(backup, null, 2)], {type:"application/json;charset=utf-8"});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "pretty-dogs-backup-" + moscowISODate() + ".json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function(){URL.revokeObjectURL(url);}, 60000);
+        if (Number(backup.photoFilesUnavailable || 0) > 0) window.alert("Копия сохранена. " + backup.photoFilesUnavailable + " старых фотографий не получилось вложить — их записи остались в архиве.");
+      } catch(error) { showError(error); }
+      finally { button.disabled = false; button.textContent = "↓ Резервная копия"; }
+    });
     document.getElementById("add-unscheduled-service").addEventListener("click",function() {
       openUnscheduledServiceForm().catch(showError);
     });
@@ -1045,6 +1130,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     });
     bindStartTimeEditorButtons(content, function(){return renderToday();});
+    bindAppointmentStatusButtons(content, function(){return renderToday();});
   }
   async function openUnscheduledServiceForm() {
     const slot = document.getElementById("unscheduled-service-slot");
@@ -1111,7 +1197,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     slot.scrollIntoView({behavior:"smooth",block:"start"});
   }
 
-  async function openAppointmentEditor(appointment, defaultDate, selectedShift) {
+  async function openAppointmentEditor(appointment, defaultDate, selectedShift, preselectedPetId) {
     const slot = document.getElementById("appointment-editor-slot");
     if (!slot) return;
     slot.innerHTML = '<div class="loading">Загружаю питомцев…</div>';
@@ -1136,10 +1222,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="smallmuted">Выбери существующего питомца или добавь нового — его карточка сохранится для следующих визитов.</div>' +
         '<form id="appointment-edit-form">' +
           '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
-            '<option value="" disabled' + (!appointment ? ' selected' : '') + '>Выбери питомца</option>' +
+            '<option value="" disabled' + (!appointment && !preselectedPetId ? ' selected' : '') + '>Выбери питомца</option>' +
             '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Новый питомец — создать карточку</option>' +
             pets.map(function(pet) {
-              const selected = !noCardAppointment && Number(pet.id) === Number(appointment && appointment.dog_id) ? ' selected' : '';
+              const selectedPetId = appointment ? Number(appointment.dog_id) : Number(preselectedPetId || 0);
+              const selected = !noCardAppointment && Number(pet.id) === selectedPetId ? ' selected' : '';
               const variant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0
                 ? ' · ' + esc(pet.breed_variant)
                 : '';
@@ -1434,6 +1521,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
                   '<button type="button" class="inlineaction" data-edit-appointment="' + Number(item.id) + '">Изменить запись</button>' +
                   '<button type="button" class="inlineaction" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время</button>' +
                   '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
+                  appointmentStatusActionsHtml(item) +
                 '</div>'
               : '<span class="status">' + esc(statusText(item.status)) + '</span>') +
           '</article>';
@@ -1464,6 +1552,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     });
     bindStartTimeEditorButtons(content, function(){return renderCalendar();});
+    bindAppointmentStatusButtons(content, function(){return renderCalendar();});
     document.getElementById("calendar-prev").addEventListener("click",function(){moveCalendarMonth(-1);});
     document.getElementById("calendar-next").addEventListener("click",function(){moveCalendarMonth(1);});
     content.querySelectorAll("[data-calendar-date]").forEach(function(button) {
@@ -1801,6 +1890,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Возраст",pet.age) +
       detailRow("Комментарий",pet.comment) + '</section>' +
+      '<button class="btn secondary full" type="button" id="repeat-appointment">＋ Записать снова</button>' +
+      '<div id="appointment-editor-slot"></div>' +
       '<button class="btn secondary full" type="button" id="edit-pet">Редактировать карточку питомца</button>' +
       '<div id="pet-card-editor-slot"></div>' +
       cardSection +
@@ -1810,6 +1901,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
     document.getElementById("back-pets-bottom").addEventListener("click",function(){renderPets().catch(showError);});
+    document.getElementById("repeat-appointment").addEventListener("click",function() {
+      openAppointmentEditor(null, moscowISODate(), null, Number(id)).catch(showError);
+    });
     document.getElementById("edit-pet").addEventListener("click",function() {
       bindPetCardForm(document.getElementById("pet-card-editor-slot"), pet, id);
     });
