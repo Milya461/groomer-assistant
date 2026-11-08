@@ -4927,6 +4927,69 @@ async function handleWebApi(request, env) {
     const month = date.slice(0, 7);
     const todayDisplay = date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
 
+    if (request.method === "GET" && path === "/api/backup") {
+      const [petsResult, appointmentsResult, earningsResult, shiftsResult, groomingCardsResult, templatesResult, visitPhotosResult, groomingPhotosResult, coverPhotosResult] = await Promise.all([
+        env.DB.prepare("SELECT * FROM dogs ORDER BY id").all(),
+        env.DB.prepare("SELECT * FROM appointments ORDER BY appointment_date, appointment_time, id").all(),
+        env.DB.prepare("SELECT * FROM earnings_entries ORDER BY service_date, id").all(),
+        env.DB.prepare("SELECT * FROM assistant_work_shifts ORDER BY shift_date").all(),
+        env.DB.prepare("SELECT * FROM grooming_cards ORDER BY dog_id").all(),
+        env.DB.prepare("SELECT id, name, services_json, created_at, updated_at FROM service_templates ORDER BY id").all(),
+        env.DB.prepare("SELECT id, appointment_id, photo_type, caption, created_at, telegram_file_id FROM visit_photos ORDER BY id").all(),
+        env.DB.prepare("SELECT id, dog_id, caption, created_at, telegram_file_id FROM grooming_card_photos ORDER BY id").all(),
+        env.DB.prepare("SELECT dog_id AS id, updated_at AS created_at, telegram_file_id FROM pet_cover_photos ORDER BY dog_id").all()
+      ]);
+      const photoFiles = [];
+      let photosWithoutEmbeddedFiles = 0;
+      async function embedPhoto(collection, row, storedValue) {
+        if (!storedValue) { photosWithoutEmbeddedFiles++; return; }
+        if (storedValue.startsWith(DB_PHOTO_PREFIX)) {
+          const data = storedValue.slice(DB_PHOTO_PREFIX.length);
+          const marker = data.indexOf(";base64,");
+          if (marker > 0) {
+            const contentType = data.slice(0, marker);
+            const base64 = data.slice(marker + 8);
+            if (/^image\/[a-z0-9.+-]+$/i.test(contentType) && /^[A-Za-z0-9+/=]+$/.test(base64)) {
+              photoFiles.push({ collection, recordId: Number(row.id), contentType, base64 });
+              return;
+            }
+          }
+        } else if (storedValue.startsWith(R2_PHOTO_PREFIX) && env.PHOTOS) {
+          const object = await env.PHOTOS.get(storedValue.slice(R2_PHOTO_PREFIX.length));
+          if (object) {
+            photoFiles.push({ collection, recordId: Number(row.id), contentType: object.httpMetadata?.contentType || "image/jpeg", base64: arrayBufferToBase64(await object.arrayBuffer()) });
+            return;
+          }
+        }
+        photosWithoutEmbeddedFiles++;
+      }
+      const visitPhotos = visitPhotosResult.results || [];
+      const groomingPhotos = groomingPhotosResult.results || [];
+      const coverPhotos = coverPhotosResult.results || [];
+      for (const row of visitPhotos) await embedPhoto("visitPhotos", row, row.telegram_file_id);
+      for (const row of groomingPhotos) await embedPhoto("groomingPhotos", row, row.telegram_file_id);
+      for (const row of coverPhotos) await embedPhoto("coverPhotos", row, row.telegram_file_id);
+      const embedded = (collection, id) => photoFiles.some(photo => photo.collection === collection && photo.recordId === Number(id));
+      return webApiResponse({
+        backupFormat: "pretty-dogs-json-v1",
+        createdAt: new Date().toISOString(),
+        contents: {
+          pets: petsResult.results || [],
+          appointments: appointmentsResult.results || [],
+          earnings: earningsResult.results || [],
+          workShifts: shiftsResult.results || [],
+          groomingCards: groomingCardsResult.results || [],
+          serviceTemplates: templatesResult.results || [],
+          visitPhotos: visitPhotos.map(({ telegram_file_id, ...row }) => ({ ...row, imageEmbedded: embedded("visitPhotos", row.id) })),
+          groomingPhotos: groomingPhotos.map(({ telegram_file_id, ...row }) => ({ ...row, imageEmbedded: embedded("groomingPhotos", row.id) })),
+          coverPhotos: coverPhotos.map(({ telegram_file_id, ...row }) => ({ ...row, imageEmbedded: embedded("coverPhotos", row.id) })),
+          photoFiles
+        },
+        photoFilesIncluded: photoFiles.length,
+        photoFilesUnavailable: photosWithoutEmbeddedFiles,
+        note: photosWithoutEmbeddedFiles ? "Часть старых фотографий хранится только по внешним ссылкам и не вложена в копию." : "Фотографии, доступные в веб-хранилище, вложены в копию."
+      });
+    }
     if (request.method === "GET" && path === "/api/breed-variants") {
       const breed = String(url.searchParams.get("breed") || "").trim().slice(0, 120);
       const species = String(url.searchParams.get("species") || "dog");
@@ -5020,7 +5083,7 @@ async function handleWebApi(request, env) {
                d.name, d.breed, d.species, d.breed_variant, d.is_temporary
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
-        WHERE a.status IN ('scheduled', 'waiting', 'in_progress')
+        WHERE a.status IN ('scheduled', 'waiting', 'in_progress', 'completed', 'cancelled', 'no_show')
           AND a.appointment_date >= ? AND a.appointment_date <= ?
         ORDER BY a.appointment_date, a.appointment_time, a.queue_position, a.id
         LIMIT 300
@@ -5047,6 +5110,7 @@ async function handleWebApi(request, env) {
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
         WHERE a.appointment_date = ?
+          AND a.status IN ('scheduled', 'waiting', 'in_progress', 'completed')
         ORDER BY a.queue_position, a.appointment_time, a.id
         LIMIT 100
       `).bind(date).all();
@@ -5142,6 +5206,21 @@ async function handleWebApi(request, env) {
       }, 201);
     }
 
+    const appointmentStatusMatch = path.match(/^\/api\/appointments\/(\d+)\/status$/);
+    if (request.method === "POST" && appointmentStatusMatch) {
+      const appointmentId = Number(appointmentStatusMatch[1]);
+      let body;
+      try { body = await request.json(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать статус записи." }, 400); }
+      const nextStatus = String(body.status || "");
+      if (!["cancelled", "no_show"].includes(nextStatus)) return webApiResponse({ error: "Можно выбрать только отмену или неявку." }, 400);
+      const appointment = await env.DB.prepare("SELECT id, status FROM appointments WHERE id = ?").bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Запись не найдена." }, 404);
+      if (!["scheduled", "waiting"].includes(appointment.status)) return webApiResponse({ error: "Отменить или отметить неявку можно только до начала визита." }, 409);
+      const updated = await env.DB.prepare("UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('scheduled','waiting')").bind(nextStatus, appointmentId).run();
+      if (!updated.meta?.changes) return webApiResponse({ error: "Запись уже изменилась. Обнови страницу." }, 409);
+      return webApiResponse({ ok: true, id: appointmentId, status: nextStatus, message: nextStatus === "cancelled" ? "Запись отменена и сохранена в истории." : "Неявка сохранена в истории." });
+    }
     const editAppointmentMatch = path.match(/^\/api\/appointments\/(\d+)$/);
     if (request.method === "PUT" && editAppointmentMatch) {
       const appointmentId = Number(editAppointmentMatch[1]);
@@ -5427,7 +5506,7 @@ async function handleWebApi(request, env) {
 
     const visitPhotoImageMatch = path.match(/^\/api\/visit-photos\/(\d+)\/image$/);
     if (request.method === "GET" && visitPhotoImageMatch) {
-      const photo = await env.DB.prepare("SELECT telegram_file_id FROM visit_photos WHERE id = ? AND photo_type = 'after'")
+      const photo = await env.DB.prepare("SELECT telegram_file_id FROM visit_photos WHERE id = ? AND photo_type IN ('before', 'after')")
         .bind(Number(visitPhotoImageMatch[1])).first();
       return readStoredPhotoResponse(env, photo?.telegram_file_id, "Фотография визита не найдена.", "Не удалось загрузить фотографию визита.");
     }
@@ -5480,6 +5559,26 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true, petId, caption });
     }
 
+    const beforeVisitPhotosMatch = path.match(/^\/api\/appointments\/(\d+)\/before-photos$/);
+    if (request.method === "POST" && beforeVisitPhotosMatch) {
+      const appointmentId = Number(beforeVisitPhotosMatch[1]);
+      const appointment = await env.DB.prepare("SELECT id, status FROM appointments WHERE id = ?").bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
+      if (["cancelled", "no_show"].includes(appointment.status)) return webApiResponse({ error: "Для отменённой записи фото не добавляются." }, 409);
+      let form;
+      try { form = await request.formData(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать фотографию." }, 400); }
+      const photoFile = form.get("photo");
+      if (!photoFile || typeof photoFile.arrayBuffer !== "function") return webApiResponse({ error: "Выбери фотографию." }, 400);
+      if (!String(photoFile.type || "").startsWith("image/")) return webApiResponse({ error: "Нужно выбрать файл изображения." }, 415);
+      if (photoFile.size > 10 * 1024 * 1024) return webApiResponse({ error: "Размер фотографии должен быть не больше 10 МБ." }, 413);
+      const key = "visits/" + appointmentId + "/before/" + crypto.randomUUID();
+      const stored = await savePhotoToR2(env, key, photoFile);
+      if (stored.error) return webApiResponse({ error: stored.error }, stored.status);
+      const caption = String(form.get("caption") || "").trim().slice(0, 1000) || null;
+      const inserted = await env.DB.prepare("INSERT INTO visit_photos (appointment_id, photo_type, telegram_file_id, caption) VALUES (?, 'before', ?, ?)").bind(appointmentId, stored.storedValue, caption).run();
+      return webApiResponse({ ok: true, appointmentId, photoId: Number(inserted.meta.last_row_id), message: "Фото до визита сохранено." }, 201);
+    }
     const afterVisitPhotosMatch = path.match(/^\/api\/appointments\/(\d+)\/after-photos$/);
     if (request.method === "POST" && afterVisitPhotosMatch) {
       const appointmentId = Number(afterVisitPhotosMatch[1]);
@@ -5543,7 +5642,7 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Некорректный питомец." }, 400);
       }
       const searchName = String(url.searchParams.get("q") || "").trim().slice(0, 100);
-      const filters = ["a.status IN ('completed', 'in_progress')"];
+      const filters = ["a.status IN ('completed', 'in_progress', 'cancelled', 'no_show')"];
       const filterBindings = [];
       if (dogId) {
         filters.push("a.dog_id = ?");
@@ -5576,7 +5675,7 @@ async function handleWebApi(request, env) {
         const placeholders = visitIds.map(() => "?").join(", ");
         const photoResult = await env.DB.prepare(
           "SELECT id, appointment_id, photo_type, caption, created_at FROM visit_photos " +
-          "WHERE photo_type = 'after' AND appointment_id IN (" + placeholders + ") " +
+          "WHERE photo_type IN ('before', 'after') AND appointment_id IN (" + placeholders + ") " +
           "ORDER BY created_at DESC, id DESC"
         ).bind(...visitIds).all();
         for (const photo of photoResult.results || []) {
