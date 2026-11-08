@@ -5654,7 +5654,8 @@ async function handleWebApi(request, env) {
         const duration = Number(visit.actual_duration_minutes || 0);
         const firstProcedure = String(visit.procedures || "").split(";")[0].trim();
         const separator = firstProcedure.indexOf(":");
-        const service = (separator >= 0 ? firstProcedure.slice(0, separator) : firstProcedure).trim();
+        const rawService = (separator >= 0 ? firstProcedure.slice(0, separator) : firstProcedure).trim();
+        const service = /^комплекс$/i.test(rawService) ? "По красивой" : rawService;
 
         if (!breed || !service || !Number.isFinite(duration) || duration <= 0) continue;
         if (service.toLocaleLowerCase("ru-RU").startsWith("корректировка итоговой суммы")) continue;
