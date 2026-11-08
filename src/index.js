@@ -5214,9 +5214,12 @@ async function handleWebApi(request, env) {
       catch { return webApiResponse({ error: "Не удалось прочитать статус записи." }, 400); }
       const nextStatus = String(body.status || "");
       if (!["cancelled", "no_show"].includes(nextStatus)) return webApiResponse({ error: "Можно выбрать только отмену или неявку." }, 400);
-      const appointment = await env.DB.prepare("SELECT id, status FROM appointments WHERE id = ?").bind(appointmentId).first();
+      const appointment = await env.DB.prepare("SELECT id, status, appointment_date, appointment_time FROM appointments WHERE id = ?").bind(appointmentId).first();
       if (!appointment) return webApiResponse({ error: "Запись не найдена." }, 404);
       if (!["scheduled", "waiting"].includes(appointment.status)) return webApiResponse({ error: "Отменить или отметить неявку можно только до начала визита." }, 409);
+      if (nextStatus === "no_show" && (appointment.appointment_date > date || (appointment.appointment_date === date && String(appointment.appointment_time || "00:00") > localTime()))) {
+        return webApiResponse({ error: "Неявку можно отметить только после назначенного времени." }, 400);
+      }
       const updated = await env.DB.prepare("UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('scheduled','waiting')").bind(nextStatus, appointmentId).run();
       if (!updated.meta?.changes) return webApiResponse({ error: "Запись уже изменилась. Обнови страницу." }, 409);
       return webApiResponse({ ok: true, id: appointmentId, status: nextStatus, message: nextStatus === "cancelled" ? "Запись отменена и сохранена в истории." : "Неявка сохранена в истории." });
