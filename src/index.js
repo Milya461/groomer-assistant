@@ -5635,6 +5635,57 @@ async function handleWebApi(request, env) {
       return webApiResponse({ ok: true });
     }
 
+    if (request.method === "GET" && path === "/api/service-time-stats") {
+      const result = await env.DB.prepare(`
+        SELECT a.appointment_date, a.procedures, a.actual_duration_minutes, d.breed
+        FROM appointments a
+        JOIN dogs d ON d.id = a.dog_id
+        WHERE a.status = 'completed'
+          AND COALESCE(a.actual_duration_minutes, 0) > 0
+          AND TRIM(COALESCE(d.breed, '')) <> ''
+          AND TRIM(COALESCE(a.procedures, '')) <> ''
+        ORDER BY a.appointment_date DESC, a.id DESC
+      `).all();
+
+      const groups = new Map();
+      let visitsCount = 0;
+      for (const visit of result.results || []) {
+        const breed = String(visit.breed || "").trim();
+        const duration = Number(visit.actual_duration_minutes || 0);
+        const firstProcedure = String(visit.procedures || "").split(";")[0].trim();
+        const separator = firstProcedure.indexOf(":");
+        const service = (separator >= 0 ? firstProcedure.slice(0, separator) : firstProcedure).trim();
+
+        if (!breed || !service || !Number.isFinite(duration) || duration <= 0) continue;
+        if (service.toLocaleLowerCase("ru-RU").startsWith("корректировка итоговой суммы")) continue;
+
+        const key = breed.toLocaleLowerCase("ru-RU") + "::" + service.toLocaleLowerCase("ru-RU");
+        let group = groups.get(key);
+        if (!group) {
+          group = { breed, service, totalMinutes: 0, visitsCount: 0, lastVisit: visit.appointment_date || null };
+          groups.set(key, group);
+        }
+        group.totalMinutes += duration;
+        group.visitsCount += 1;
+        if (visit.appointment_date && (!group.lastVisit || visit.appointment_date > group.lastVisit)) {
+          group.lastVisit = visit.appointment_date;
+        }
+        visitsCount += 1;
+      }
+
+      const stats = Array.from(groups.values()).map(group => ({
+        breed: group.breed,
+        service: group.service,
+        averageMinutes: Math.round(group.totalMinutes / group.visitsCount),
+        visitsCount: group.visitsCount,
+        lastVisit: group.lastVisit
+      })).sort((a, b) =>
+        a.breed.localeCompare(b.breed, "ru") || a.service.localeCompare(b.service, "ru")
+      );
+
+      return webApiResponse({ stats, visitsCount });
+    }
+
     if (request.method === "GET" && path === "/api/visits") {
       const requestedLimit = Number(url.searchParams.get("limit") || 50);
       const requestedOffset = Number(url.searchParams.get("offset") || 0);
