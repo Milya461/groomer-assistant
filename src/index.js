@@ -266,7 +266,7 @@ async function migrateLegacyPetComments(env) {
       }
 
       if (!additions.length) continue;
-      const comment = [existingComment, ...additions].filter(Boolean).join("\\n");
+      const comment = [existingComment, ...additions].filter(Boolean).join("\n");
       await env.DB.prepare("UPDATE dogs SET comment = ? WHERE id = ?")
         .bind(comment, Number(row.id)).run();
       migratedPets++;
@@ -729,7 +729,7 @@ async function formatGroomingCard(card) {
     "",
     `Длина корпуса: ${card.body_length || "—"}`,
     `Длина лап: ${card.legs_length || "—"}`
-  ].join("\\n");
+  ].join("\n");
 }
 async function rememberChat(env, chatId) {
   await env.DB.prepare(`
@@ -5342,19 +5342,15 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Выбери вид питомца." }, 400);
       }
 
-      const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
+      const fieldValue = key => String(body[key] || "").trim()
+        .slice(0, key === "comment" ? 10000 : 500) || null;
       const result = await env.DB.prepare(`
         INSERT INTO dogs (
-          name, species, breed, breed_variant, age, coat_features, matting_tendency,
-          sensitive_areas, clipper_reaction, dryer_reaction,
-          nail_clipper_reaction, warnings, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          name, species, breed, breed_variant, age, comment
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `).bind(
-        name, species, fieldValue("breed"), fieldValue("breed_variant"), fieldValue("age"),
-        fieldValue("coat_features"), fieldValue("matting_tendency"),
-        fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
-        fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
-        fieldValue("warnings"), fieldValue("notes")
+        name, species, fieldValue("breed"), fieldValue("breed_variant"),
+        fieldValue("age"), fieldValue("comment")
       ).run();
 
       return webApiResponse({ ok: true, id: Number(result.meta.last_row_id) }, 201);
@@ -5471,11 +5467,7 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Не удалось прочитать данные карты." }, 400);
       }
 
-      const fields = [
-        "body_length", "legs_length", "face_length", "tail_length",
-        "head_shape", "paws_shape", "attachments", "blades",
-        "owner_preferences", "next_visit_changes"
-      ];
+      const fields = ["body_length", "legs_length"];
       const card = {};
       for (const field of fields) {
         card[field] = String(body[field] || "").trim().slice(0, 500);
@@ -5552,20 +5544,15 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Выбери вид питомца." }, 400);
       }
 
-      const fieldValue = key => String(body[key] || "").trim().slice(0, 500) || null;
+      const fieldValue = key => String(body[key] || "").trim()
+        .slice(0, key === "comment" ? 10000 : 500) || null;
       const updated = await env.DB.prepare(`
         UPDATE dogs
-        SET name = ?, species = ?, breed = ?, breed_variant = ?, age = ?,
-            coat_features = ?, matting_tendency = ?, sensitive_areas = ?,
-            clipper_reaction = ?, dryer_reaction = ?,
-            nail_clipper_reaction = ?, warnings = ?, notes = ?
+        SET name = ?, species = ?, breed = ?, breed_variant = ?, age = ?, comment = ?
         WHERE id = ? AND COALESCE(is_temporary, 0) = 0
       `).bind(
-        name, species, fieldValue("breed"), fieldValue("breed_variant"), fieldValue("age"),
-        fieldValue("coat_features"), fieldValue("matting_tendency"),
-        fieldValue("sensitive_areas"), fieldValue("clipper_reaction"),
-        fieldValue("dryer_reaction"), fieldValue("nail_clipper_reaction"),
-        fieldValue("warnings"), fieldValue("notes"), petId
+        name, species, fieldValue("breed"), fieldValue("breed_variant"),
+        fieldValue("age"), fieldValue("comment"), petId
       ).run();
 
       if (!updated.meta?.changes) return webApiResponse({ error: "Карточка не найдена или не изменена." }, 404);
@@ -5575,9 +5562,7 @@ async function handleWebApi(request, env) {
     if (request.method === "GET" && petMatch) {
       const petId = Number(petMatch[1]);
       const pet = await env.DB.prepare(`
-        SELECT id, name, species, breed, breed_variant, age, coat_features, matting_tendency,
-               warnings, sensitive_areas, clipper_reaction, dryer_reaction,
-               nail_clipper_reaction, notes
+        SELECT id, name, species, breed, breed_variant, age, comment
         FROM dogs
         WHERE id = ? AND COALESCE(is_temporary, 0) = 0
       `).bind(petId).first();
