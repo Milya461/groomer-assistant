@@ -782,7 +782,12 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (!panel) return;
     panel.innerHTML = '<div class="loading">Загружаю услуги и цены по прайсу…</div>';
     try {
-      const catalog = await api("/api/service-options?dogId=" + Number(dogId));
+      const results = await Promise.all([
+        api("/api/service-options?dogId=" + Number(dogId)),
+        api("/api/service-templates")
+      ]);
+      const catalog = results[0];
+      let serviceTemplates = results[1].templates || [];
       if (catalog.requiresVariant) {
         panel.innerHTML =
           '<section class="service-picker">' +
@@ -838,6 +843,21 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="eyebrow">ЗАВЕРШЕНИЕ ВИЗИТА</div>' +
           '<h2 style="margin:8px 0 5px">' + esc(petName) + '</h2>' +
           '<div class="smallmuted">Выбери одну основную услугу и дополнительные, если они были. Цены автоматически взяты из прайса; каждую цену и итоговую сумму можно исправить.</div>' +
+          '<div class="service-template-box" style="padding:12px;border:1px solid var(--line);border-radius:11px;margin:14px 0;background:#fafafa">' +
+            '<div class="service-picker-heading" style="margin-top:0">Мои наборы услуг</div>' +
+            '<div class="service-choice-controls" style="grid-template-columns:minmax(0,1fr) auto auto">' +
+              '<label><span>Выбрать набор</span><select data-service-template-select>' +
+                '<option value="">' + (serviceTemplates.length ? 'Выбери сохранённый набор' : 'Пока нет наборов') + '</option>' +
+                serviceTemplates.map(function(item){return '<option value="' + Number(item.id) + '">' + esc(item.name) + '</option>';}).join("") +
+              '</select></label>' +
+              '<button type="button" class="inlineaction" data-apply-service-template ' + (serviceTemplates.length ? "" : "disabled") + '>Применить</button>' +
+              '<button type="button" class="inlineaction" data-delete-service-template ' + (serviceTemplates.length ? "" : "disabled") + '>Удалить</button>' +
+            '</div>' +
+            '<div class="service-choice-controls" style="grid-template-columns:minmax(0,1fr) auto;margin-top:9px">' +
+              '<label><span>Сохранить выбранные услуги как набор</span><input type="text" maxlength="60" data-new-service-template-name placeholder="Например, Гигиена + когти"></label>' +
+              '<button type="button" class="inlineaction" data-save-service-template>Сохранить</button>' +
+            '</div>' +
+          '</div>' +
           '<div class="service-picker-heading">Основная услуга</div>' +
           '<div class="service-choice-list">' + baseServices.map(function(service){return renderChoice(service,true);}).join("") + '</div>' +
           '<div class="service-picker-heading">Дополнительные услуги</div>' +
@@ -976,6 +996,71 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         }
         if (pendingReview) renderConfirmation(selections);
       }
+      const templateSelect = panel.querySelector("[data-service-template-select]");
+      const applyTemplateButton = panel.querySelector("[data-apply-service-template]");
+      const deleteTemplateButton = panel.querySelector("[data-delete-service-template]");
+      const saveTemplateButton = panel.querySelector("[data-save-service-template]");
+      const templateNameInput = panel.querySelector("[data-new-service-template-name]");
+      function refreshTemplateSelect(selectedId) {
+        templateSelect.innerHTML = '<option value="">' + (serviceTemplates.length ? "Выбери сохранённый набор" : "Пока нет наборов") + '</option>' +
+          serviceTemplates.map(function(item){return '<option value="' + Number(item.id) + '">' + esc(item.name) + '</option>';}).join("");
+        templateSelect.value = selectedId ? String(selectedId) : "";
+        applyTemplateButton.disabled = !serviceTemplates.length;
+        deleteTemplateButton.disabled = !serviceTemplates.length;
+      }
+      applyTemplateButton.addEventListener("click",function() {
+        const template = serviceTemplates.find(function(item){return Number(item.id) === Number(templateSelect.value);});
+        if (!template) { errorBox.textContent = "Сначала выбери набор услуг."; errorBox.style.display = "block"; return; }
+        const saved = Array.isArray(template.services) ? template.services : [];
+        const savedIds = saved.map(function(item){return String(item.id || "");});
+        panel.querySelectorAll("[data-finish-base]").forEach(function(input){input.checked = savedIds.includes(input.dataset.finishBase);});
+        panel.querySelectorAll("[data-finish-addon]").forEach(function(input){input.checked = savedIds.includes(input.dataset.finishAddon);});
+        saved.forEach(function(savedService) {
+          const service = allServices.find(function(item){return item.id === savedService.id;});
+          if (!service) return;
+          const sizeInput = panel.querySelector('[data-finish-size="' + savedService.id + '"]');
+          const priceInput = panel.querySelector('[data-finish-price="' + savedService.id + '"]');
+          if (sizeInput && savedService.size) {
+            sizeInput.value = savedService.size;
+            const choice = (service.sizeChoices || []).find(function(item){return item.value === savedService.size;});
+            if (choice && priceInput) priceInput.value = choice.price;
+          }
+        });
+        manualTotal = false;
+        updateTotals();
+        errorBox.style.display = "none";
+      });
+      saveTemplateButton.addEventListener("click",async function() {
+        const name = String(templateNameInput.value || "").trim();
+        const selections = getSelections();
+        if (!name) { errorBox.textContent = "Укажи название набора."; errorBox.style.display = "block"; templateNameInput.focus(); return; }
+        if (selections.filter(function(item){return item.id.startsWith("groom:");}).length !== 1) { errorBox.textContent = "Выбери одну основную услугу и дополнительные услуги."; errorBox.style.display = "block"; return; }
+        saveTemplateButton.disabled = true;
+        saveTemplateButton.textContent = "Сохраняю…";
+        try {
+          const result = await api("/api/service-templates",{method:"POST",body:JSON.stringify({name,services:selections.map(function(item){return {id:item.id,size:item.size};})})});
+          const savedTemplate = result.template;
+          const existingIndex = serviceTemplates.findIndex(function(item){return Number(item.id) === Number(savedTemplate.id);});
+          if (existingIndex >= 0) serviceTemplates[existingIndex] = savedTemplate;
+          else serviceTemplates.push(savedTemplate);
+          refreshTemplateSelect(savedTemplate.id);
+          templateNameInput.value = "";
+          errorBox.style.display = "none";
+        } catch(error) { errorBox.textContent = error.message || "Не удалось сохранить набор."; errorBox.style.display = "block"; }
+        finally { saveTemplateButton.disabled = false; saveTemplateButton.textContent = "Сохранить"; }
+      });
+      deleteTemplateButton.addEventListener("click",async function() {
+        const template = serviceTemplates.find(function(item){return Number(item.id) === Number(templateSelect.value);});
+        if (!template) { errorBox.textContent = "Сначала выбери набор услуг."; errorBox.style.display = "block"; return; }
+        if (!window.confirm("Удалить набор «" + template.name + "»?")) return;
+        deleteTemplateButton.disabled = true;
+        try {
+          await api("/api/service-templates?id=" + Number(template.id),{method:"DELETE"});
+          serviceTemplates = serviceTemplates.filter(function(item){return Number(item.id) !== Number(template.id);});
+          refreshTemplateSelect("");
+          errorBox.style.display = "none";
+        } catch(error) { errorBox.textContent = error.message || "Не удалось удалить набор."; errorBox.style.display = "block"; deleteTemplateButton.disabled = false; }
+      });
       panel.querySelectorAll("[data-finish-base],[data-finish-addon]").forEach(function(input) {
         input.addEventListener("change",updateTotals);
       });
