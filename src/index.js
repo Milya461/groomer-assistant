@@ -5490,50 +5490,68 @@ async function handleWebApi(request, env) {
     }
 
     if (request.method === "GET" && path === "/api/visits") {
-      const result = await env.DB.prepare(`
-        SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time,
-               a.status, a.procedures, a.actual_start_time, a.actual_end_time,
-               a.actual_duration_minutes, a.planned_duration_minutes,
-               d.name, d.breed, d.species, d.breed_variant, d.is_temporary,
-               COALESCE((
-                 SELECT SUM(e.earned)
-                 FROM earnings_entries e
-                 WHERE e.appointment_id = a.id
-               ), 0) AS earned
-        FROM appointments a
-        JOIN dogs d ON d.id = a.dog_id
-        WHERE a.status IN ('completed', 'in_progress')
-        ORDER BY a.appointment_date DESC,
-                 COALESCE(a.actual_end_time, a.actual_start_time, a.appointment_time, '') DESC,
-                 a.id DESC
-        LIMIT 100
-      `).all();
-
+      const requestedLimit = Number(url.searchParams.get("limit") || 50);
+      const requestedOffset = Number(url.searchParams.get("offset") || 0);
+      const limit = Number.isInteger(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit)) : 50;
+      const offset = Number.isInteger(requestedOffset) ? Math.min(1000000, Math.max(0, requestedOffset)) : 0;
+      const dogIdText = String(url.searchParams.get("dogId") || "").trim();
+      const dogId = dogIdText ? Number(dogIdText) : 0;
+      if (dogIdText && (!Number.isInteger(dogId) || dogId <= 0)) {
+        return webApiResponse({ error: "Некорректный питомец." }, 400);
+      }
+      const searchName = String(url.searchParams.get("q") || "").trim().slice(0, 100);
+      const filters = ["a.status IN ('completed', 'in_progress')"];
+      const filterBindings = [];
+      if (dogId) {
+        filters.push("a.dog_id = ?");
+        filterBindings.push(dogId);
+      }
+      if (searchName) {
+        filters.push("LOWER(d.name) LIKE LOWER(?)");
+        filterBindings.push("%" + searchName + "%");
+      }
+      const whereSql = filters.join(" AND ");
+      const countResult = await env.DB.prepare(
+        "SELECT COUNT(*) AS total FROM appointments a JOIN dogs d ON d.id = a.dog_id WHERE " + whereSql
+      ).bind(...filterBindings).first();
+      const result = await env.DB.prepare(
+        "SELECT a.id, a.dog_id, a.appointment_date, a.appointment_time, " +
+        "a.status, a.procedures, a.actual_start_time, a.actual_end_time, " +
+        "a.actual_duration_minutes, a.planned_duration_minutes, " +
+        "d.name, d.breed, d.species, d.breed_variant, d.is_temporary, " +
+        "COALESCE((SELECT SUM(e.earned) FROM earnings_entries e WHERE e.appointment_id = a.id), 0) AS earned " +
+        "FROM appointments a JOIN dogs d ON d.id = a.dog_id " +
+        "WHERE " + whereSql + " " +
+        "ORDER BY a.appointment_date DESC, " +
+        "COALESCE(a.actual_end_time, a.actual_start_time, a.appointment_time, '') DESC, a.id DESC " +
+        "LIMIT ? OFFSET ?"
+      ).bind(...filterBindings, limit, offset).all();
       const visits = result.results || [];
       const visitIds = visits.map(item => Number(item.id)).filter(Number.isFinite);
       let photosByVisit = Object.create(null);
       if (visitIds.length) {
         const placeholders = visitIds.map(() => "?").join(", ");
-        const photoResult = await env.DB.prepare(`
-          SELECT id, appointment_id, photo_type, caption, created_at
-          FROM visit_photos
-          WHERE photo_type = 'after'
-            AND appointment_id IN (${placeholders})
-          ORDER BY created_at DESC, id DESC
-        `).bind(...visitIds).all();
-
+        const photoResult = await env.DB.prepare(
+          "SELECT id, appointment_id, photo_type, caption, created_at FROM visit_photos " +
+          "WHERE photo_type = 'after' AND appointment_id IN (" + placeholders + ") " +
+          "ORDER BY created_at DESC, id DESC"
+        ).bind(...visitIds).all();
         for (const photo of photoResult.results || []) {
           const visitId = Number(photo.appointment_id);
           if (!photosByVisit[visitId]) photosByVisit[visitId] = [];
           photosByVisit[visitId].push(photo);
         }
       }
-
+      const total = Number(countResult?.total || 0);
       return webApiResponse({
         visits: visits.map(item => ({
           ...item,
           photos: photosByVisit[Number(item.id)] || []
-        }))
+        })),
+        total,
+        limit,
+        offset,
+        hasMore: offset + visits.length < total
       });
     }
 
@@ -5728,6 +5746,17 @@ async function handleWebApi(request, env) {
         LIMIT ${range === "year" ? 1000 : 500}
       `).bind(start, end).all();
 
+      let months = [];
+      if (range === "year") {
+        const monthlyResult = await env.DB.prepare(
+          "SELECT CAST(substr(service_date, 6, 2) AS INTEGER) AS month, " +
+          "COUNT(*) AS count, COALESCE(SUM(earned), 0) AS totalEarned " +
+          "FROM earnings_entries WHERE service_date >= ? AND service_date <= ? " +
+          "GROUP BY substr(service_date, 1, 7) ORDER BY substr(service_date, 1, 7)"
+        ).bind(start, end).all();
+        months = monthlyResult.results || [];
+      }
+
       return webApiResponse({
         range,
         start,
@@ -5735,6 +5764,7 @@ async function handleWebApi(request, env) {
         periodLabel,
         count: Number(summary?.count || 0),
         totalEarned: Number(summary?.totalEarned || 0),
+        months,
         entries: entriesResult.results || []
       });
     }
