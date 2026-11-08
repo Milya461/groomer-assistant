@@ -198,6 +198,101 @@ async function answerCallback(env, callbackId, text = "") {
   }
 }
 
+
+async function migrateLegacyPetComments(env) {
+  const settingKey = "pet_card_comment_migration_v1";
+  const current = await env.DB.prepare(
+    "SELECT setting_value, updated_at FROM assistant_settings WHERE setting_key = ?"
+  ).bind(settingKey).first();
+
+  if (current) {
+    let status = null;
+    try { status = JSON.parse(current.setting_value); } catch {}
+    if (status?.status === "completed") return status;
+    if (status?.status === "running") {
+      const updatedAt = Date.parse(String(current.updated_at || "").replace(" ", "T") + "Z");
+      const age = Date.now() - updatedAt;
+      if (Number.isFinite(age) && age < 10 * 60 * 1000) return status;
+    }
+  }
+
+  const token = crypto.randomUUID();
+  const runningValue = JSON.stringify({ status: "running", token });
+  if (!current) {
+    const claim = await env.DB.prepare(`
+      INSERT OR IGNORE INTO assistant_settings (setting_key, setting_value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+    `).bind(settingKey, runningValue).run();
+    if (!claim.meta?.changes) return null;
+  } else {
+    const claim = await env.DB.prepare(`
+      UPDATE assistant_settings
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE setting_key = ? AND setting_value = ?
+    `).bind(runningValue, settingKey, current.setting_value).run();
+    if (!claim.meta?.changes) return null;
+  }
+
+  try {
+    const rows = await env.DB.prepare(`
+      SELECT id, comment, coat_features, matting_tendency, sensitive_areas,
+             clipper_reaction, dryer_reaction, nail_clipper_reaction, warnings, notes
+      FROM dogs
+    `).all();
+
+    const fields = [
+      ["coat_features", "Особенности шерсти"],
+      ["matting_tendency", "Склонность к колтунам"],
+      ["sensitive_areas", "Чувствительные зоны"],
+      ["clipper_reaction", "Реакция на машинку"],
+      ["dryer_reaction", "Реакция на фен"],
+      ["nail_clipper_reaction", "Реакция на когтерез"],
+      ["warnings", "Предупреждения"],
+      ["notes", "Заметки"]
+    ];
+
+    let migratedPets = 0;
+    let migratedValues = 0;
+    for (const row of rows.results || []) {
+      const existingComment = String(row.comment || "").trim();
+      const additions = [];
+      for (const [field, label] of fields) {
+        const value = String(row[field] || "").trim();
+        if (!value) continue;
+        const entry = label + " — " + value;
+        if (!existingComment.includes(entry) && !additions.includes(entry)) {
+          additions.push(entry);
+        }
+      }
+
+      if (!additions.length) continue;
+      const comment = [existingComment, ...additions].filter(Boolean).join("\\n");
+      await env.DB.prepare("UPDATE dogs SET comment = ? WHERE id = ?")
+        .bind(comment, Number(row.id)).run();
+      migratedPets++;
+      migratedValues += additions.length;
+    }
+
+    const completedValue = JSON.stringify({
+      status: "completed",
+      migratedPets,
+      migratedValues
+    });
+    await env.DB.prepare(`
+      UPDATE assistant_settings
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE setting_key = ? AND setting_value = ?
+    `).bind(completedValue, settingKey, runningValue).run();
+    return JSON.parse(completedValue);
+  } catch (error) {
+    await env.DB.prepare(`
+      DELETE FROM assistant_settings
+      WHERE setting_key = ? AND setting_value = ?
+    `).bind(settingKey, runningValue).run();
+    throw error;
+  }
+}
+
 async function initializeDatabase(env) {
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -320,7 +415,13 @@ await env.DB.prepare(`
   } catch (error) {
     if (!String(error?.message || error).includes("duplicate column name")) throw error;
   }
+  try {
+    await env.DB.prepare("ALTER TABLE dogs ADD COLUMN comment TEXT").run();
+  } catch (error) {
+    if (!String(error?.message || error).includes("duplicate column name")) throw error;
+  }
 
+  await migrateLegacyPetComments(env);
 }
 
 const HISTORICAL_EARNINGS_2026 = [
@@ -595,19 +696,7 @@ async function importHistoricalEarnings2026(env) {
 
 async function getGroomingCard(env, dogId) {
   return env.DB.prepare(`
-    SELECT
-      dog_id,
-      body_length,
-      legs_length,
-      face_length,
-      tail_length,
-      head_shape,
-      paws_shape,
-      attachments,
-      blades,
-      owner_preferences,
-      next_visit_changes,
-      updated_at
+    SELECT dog_id, body_length, legs_length, updated_at
     FROM grooming_cards
     WHERE dog_id = ?
   `).bind(dogId).first();
@@ -616,44 +705,17 @@ async function getGroomingCard(env, dogId) {
 async function saveGroomingCard(env, dogId, data) {
   await env.DB.prepare(`
     INSERT INTO grooming_cards (
-      dog_id,
-      body_length,
-      legs_length,
-      face_length,
-      tail_length,
-      head_shape,
-      paws_shape,
-      attachments,
-      blades,
-      owner_preferences,
-      next_visit_changes,
-      updated_at
+      dog_id, body_length, legs_length, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(dog_id) DO UPDATE SET
       body_length = excluded.body_length,
       legs_length = excluded.legs_length,
-      face_length = excluded.face_length,
-      tail_length = excluded.tail_length,
-      head_shape = excluded.head_shape,
-      paws_shape = excluded.paws_shape,
-      attachments = excluded.attachments,
-      blades = excluded.blades,
-      owner_preferences = excluded.owner_preferences,
-      next_visit_changes = excluded.next_visit_changes,
       updated_at = CURRENT_TIMESTAMP
   `).bind(
     dogId,
     data.body_length || null,
-    data.legs_length || null,
-    data.face_length || null,
-    data.tail_length || null,
-    data.head_shape || null,
-    data.paws_shape || null,
-    data.attachments || null,
-    data.blades || null,
-    data.owner_preferences || null,
-    data.next_visit_changes || null
+    data.legs_length || null
   ).run();
 }
 
@@ -665,20 +727,9 @@ async function formatGroomingCard(card) {
   return [
     "✂️  Карта стрижки",
     "",
-    `Корпус: ${card.body_length || "—"}`,
-    `Лапы: ${card.legs_length || "—"}`,
-    `Морда: ${card.face_length || "—"}`,
-    `Хвост: ${card.tail_length || "—"}`,
-    "",
-    `Форма головы: ${card.head_shape || "—"}`,
-    `Форма лап: ${card.paws_shape || "—"}`,
-    "",
-    `Насадки: ${card.attachments || "—"}`,
-    `Ножи: ${card.blades || "—"}`,
-    "",
-    `Пожелания владельца: ${card.owner_preferences || "—"}`,
-    `Изменить в следующий раз: ${card.next_visit_changes || "—"}`
-  ].join("\n");
+    `Длина корпуса: ${card.body_length || "—"}`,
+    `Длина лап: ${card.legs_length || "—"}`
+  ].join("\\n");
 }
 async function rememberChat(env, chatId) {
   await env.DB.prepare(`
