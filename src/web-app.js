@@ -2166,7 +2166,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     } catch(error) {
       historySlot.innerHTML = '<div class="smallmuted">Не удалось загрузить историю визитов.</div>';
     }
-    await Promise.all(galleryImages);    await Promise.all(galleryImages);
+    await Promise.all(galleryImages);
   }
   async function renderVisits() {
     currentScreen = "visits";
