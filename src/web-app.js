@@ -359,6 +359,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   const subtitle = document.getElementById("page-subtitle");
   let currentScreen = "today";
   let petQuery = "";
+  let visitsSearchQuery = "";
+  let visitsLimit = 50;
   let earningsRange = "month";
   let earningsYear = new Date().getFullYear();
   let earningsMonth = new Date().getMonth() + 1;
@@ -1797,6 +1799,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
       '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
+      detailRow("Возраст",pet.age) +
       detailRow("Комментарий",pet.comment) + '</section>' +
       '<button class="btn secondary full" type="button" id="edit-pet">Редактировать карточку питомца</button>' +
       '<div id="pet-card-editor-slot"></div>' +
@@ -1915,107 +1918,144 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     const historySlot = document.getElementById("pet-visit-history-slot");
     try {
-      const visitData = await api("/api/visits");
-      const petVisits = (visitData.visits || []).filter(function(item) {
-        return Number(item.dog_id) === Number(id);
-      });
-      if (!petVisits.length) {
-        historySlot.innerHTML = '<div class="smallmuted">Завершённых визитов пока нет.</div>';
-      } else {
-        historySlot.innerHTML = petVisits.map(function(item) {
-          const visitPhotos = item.photos || [];
-          return '<article class="history-card">' +
-            '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
-            '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
-            (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
-            '<div class="smallmuted history-photo-label">Фото после визита</div>' +
-            (visitPhotos.length
-              ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
-                  return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-                }).join("") + '</div>'
-              : '<div class="smallmuted">Для этого визита фото ещё не добавлены.</div>') +
-            (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
-            '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
+      historySlot.innerHTML = '<div id="pet-visit-cards"></div><div id="pet-history-more-slot"></div>';
+      let petVisitsOffset = 0;
+      const petVisitsPageSize = 50;
+
+      function petVisitCardHtml(item) {
+        const visitPhotos = item.photos || [];
+        return '<article class="history-card" data-pet-visit-id="' + Number(item.id) + '">' +
+          '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
+          '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
+          (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
+          '<div class="smallmuted history-photo-label">Фото после визита</div>' +
+          (visitPhotos.length
+            ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
+                return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+              }).join("") + '</div>'
+            : '<div class="smallmuted">Для этого визита фото ещё не добавлены.</div>') +
+          (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
+          '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
           '</article>';
-        }).join("");
-        const visitJobs = [];
-        petVisits.forEach(function(item) {
+      }
+
+      async function bindPetVisitPage(items) {
+        const photoJobs = [];
+        items.forEach(function(item) {
+          const article = historySlot.querySelector('[data-pet-visit-id="' + Number(item.id) + '"]');
           (item.photos || []).forEach(function(photo) {
-            visitJobs.push(loadPrivatePhoto(
-              historySlot.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
+            photoJobs.push(loadPrivatePhoto(
+              article && article.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
               photo.id,
               "visit"
             ));
           });
+          const input = article && article.querySelector("[data-after-photo-upload]");
+          if (input) {
+            input.addEventListener("change", async function() {
+              const imageFile = input.files && input.files[0];
+              if (!imageFile) return;
+              if (!String(imageFile.type || "").startsWith("image/")) {
+                showError(new Error("Выбери изображение."));
+                return;
+              }
+              if (imageFile.size > 10 * 1024 * 1024) {
+                showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
+                return;
+              }
+              input.disabled = true;
+              try {
+                const formData = new FormData();
+                const preparedPhoto = await preparePhotoForStorage(imageFile);
+                formData.append("photo", preparedPhoto, preparedPhoto.name);
+                await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
+                  method:"POST",
+                  body:formData
+                });
+                await renderPet(id);
+              } catch(error) {
+                showError(error);
+                input.disabled = false;
+              }
+            });
+          }
         });
-        await Promise.all(visitJobs);
-        historySlot.querySelectorAll("[data-after-photo-upload]").forEach(function(input) {
-          input.addEventListener("change", async function() {
-            const imageFile = input.files && input.files[0];
-            if (!imageFile) return;
-            if (!String(imageFile.type || "").startsWith("image/")) {
-              showError(new Error("Выбери изображение."));
-              return;
-            }
-            if (imageFile.size > 10 * 1024 * 1024) {
-              showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
-              return;
-            }
-            input.disabled = true;
-            try {
-              const formData = new FormData();
-              const preparedPhoto = await preparePhotoForStorage(imageFile);
-          formData.append("photo", preparedPhoto, preparedPhoto.name);
-              await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
-                method:"POST",
-                body:formData
-              });
-              await renderPet(id);
-            } catch(error) {
-              showError(error);
-              input.disabled = false;
-            }
-          });
+        await Promise.all(photoJobs);
+      }
+
+      async function loadPetVisitPage() {
+        const moreSlot = document.getElementById("pet-history-more-slot");
+        const moreButton = document.getElementById("pet-history-more");
+        if (moreButton) {
+          moreButton.disabled = true;
+          moreButton.textContent = "Загружаю…";
+        }
+        const page = await api("/api/visits?dogId=" + encodeURIComponent(id) +
+          "&limit=" + petVisitsPageSize + "&offset=" + petVisitsOffset);
+        const items = page.visits || [];
+        const cardHost = document.getElementById("pet-visit-cards");
+        if (!petVisitsOffset && !items.length) {
+          cardHost.innerHTML = '<div class="smallmuted">Завершённых визитов пока нет.</div>';
+        } else if (items.length) {
+          cardHost.insertAdjacentHTML("beforeend", items.map(petVisitCardHtml).join(""));
+          await bindPetVisitPage(items);
+        }
+        petVisitsOffset += items.length;
+        moreSlot.innerHTML = page.hasMore
+          ? '<button type="button" class="btn secondary full" id="pet-history-more">Загрузить ещё визиты</button>'
+          : "";
+        const nextButton = document.getElementById("pet-history-more");
+        if (nextButton) nextButton.addEventListener("click", function() {
+          loadPetVisitPage().catch(showError);
         });
       }
+
+      await loadPetVisitPage();
     } catch(error) {
       historySlot.innerHTML = '<div class="smallmuted">Не удалось загрузить историю визитов.</div>';
     }
-    await Promise.all(galleryImages);
+    await Promise.all(galleryImages);    await Promise.all(galleryImages);
   }
   async function renderVisits() {
     currentScreen = "visits";
     setHead("Визиты","История работы с питомцами");
     clearObjectUrls();
     content.innerHTML = '<div class="loading">Загружаю историю визитов…</div>';
-    const data = await api("/api/visits");
+    const data = await api("/api/visits?limit=" + visitsLimit + "&offset=0&q=" + encodeURIComponent(visitsSearchQuery));
     const visits = data.visits || [];
+    const total = Number(data.total || 0);
+    const visitCards = visits.map(function(item) {
+      const date = dateText(item.appointment_date);
+      const time = item.actual_start_time || item.appointment_time || "—";
+      const duration = Number(item.actual_duration_minutes || 0);
+      const earned = Number(item.earned || 0);
+      return '<article class="history-card">' +
+        '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
+        '<div class="history-time">' + esc(time) + '</div></div>' +
+        '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
+        '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
+        '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
+        '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
+        '<div class="smallmuted history-photo-label">Фото после визита</div>' +
+        ((item.photos || []).length
+          ? '<div class="history-photos">' + item.photos.map(function(photo) {
+              return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
+            }).join("") + '</div>'
+          : '<div class="smallmuted">Фотографий пока нет.</div>') +
+        (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
+        '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
+        (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
+        '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
+      '</article>';
+    }).join("");
+
     content.innerHTML =
-      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">Последние записи и выполненные услуги</div></div><span class="count">' + visits.length + (visits.length === 100 ? "+" : "") + '</span></div>' +
-      (visits.length ? '<div>' + visits.map(function(item) {
-        const date = dateText(item.appointment_date);
-        const time = item.actual_start_time || item.appointment_time || "—";
-        const duration = Number(item.actual_duration_minutes || 0);
-        const earned = Number(item.earned || 0);
-        return '<article class="history-card">' +
-          '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
-          '<div class="history-time">' + esc(time) + '</div></div>' +
-          '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
-          '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
-          '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
-          '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
-          '<div class="smallmuted history-photo-label">Фото после визита</div>' +
-          ((item.photos || []).length
-            ? '<div class="history-photos">' + item.photos.map(function(photo) {
-                return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-              }).join("") + '</div>'
-            : '<div class="smallmuted">Фотографий пока нет.</div>') +
-          (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
-          '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
-          (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
-          '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
-        '</article>';
-      }).join("") + '</div>' : '<div class="empty">История пока пустая. Завершённые визиты появятся здесь.</div>');
+      '<div class="searchbar"><input id="visit-search" placeholder="Найти по имени питомца" value="' + esc(visitsSearchQuery) + '" autocomplete="off"><button type="button" id="visit-search-btn">Найти</button></div>' +
+      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">Последние записи и выполненные услуги</div></div><span class="count">' + total + ' визитов</span></div>' +
+      (visits.length ? '<div id="visit-history-list">' + visitCards + '</div>' :
+        '<div class="empty">' + (visitsSearchQuery ? 'По этому имени визитов не найдено.' : 'История пока пустая. Завершённые визиты появятся здесь.') + '</div>') +
+      (data.hasMore ? '<button type="button" class="btn secondary full" id="visits-load-more">Загрузить ещё визиты</button>' : '');
+
     content.querySelectorAll("[data-toggle-history-detail]").forEach(function(button) {
       button.addEventListener("click",function() {
         const id = Number(button.dataset.toggleHistoryDetail);
@@ -2081,14 +2121,31 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ).catch(showError);
       });
     });
-
-    bindStartTimeEditorButtons(content, function(){return renderVisits();});
-
     content.querySelectorAll("[data-open-pet]").forEach(function(button) {
       button.addEventListener("click",function() {
         renderPet(Number(button.dataset.openPet)).catch(showError);
       });
     });
+
+    const searchInput = document.getElementById("visit-search");
+    const searchButton = document.getElementById("visit-search-btn");
+    async function runVisitSearch() {
+      visitsSearchQuery = searchInput.value.trim();
+      visitsLimit = 50;
+      await renderVisits();
+    }
+    searchButton.addEventListener("click",function(){runVisitSearch().catch(showError);});
+    searchInput.addEventListener("keydown",function(event) {
+      if (event.key === "Enter") runVisitSearch().catch(showError);
+    });
+    const moreButton = document.getElementById("visits-load-more");
+    if (moreButton) {
+      moreButton.addEventListener("click",function() {
+        visitsLimit = Math.min(visitsLimit + 50, total);
+        renderVisits().catch(showError);
+      });
+    }
+    bindStartTimeEditorButtons(content, function(){return renderVisits();});
     await Promise.all(photoJobs);
   }
 
@@ -2099,22 +2156,38 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange) +
       "&year=" + encodeURIComponent(earningsYear) + "&month=" + encodeURIComponent(earningsMonth));
     const entries = data.entries || [];
-    const isCurrentEarningsMonth = earningsYear === new Date().getFullYear() &&
-      earningsMonth === new Date().getMonth() + 1;
-    const showEarningsDetails = earningsRange !== "year";
-    const visibleEntries = isCurrentEarningsMonth
-      ? entries
-      : entries.filter(function(item){
-          return /чаевые/i.test(String(item.description || ""));
-        });
-    const entriesHeading = isCurrentEarningsMonth ? "Услуги" : "Чаевые";
+    const currentDate = new Date();
+    const isCurrentEarningsMonth = earningsYear === currentDate.getFullYear() &&
+      earningsMonth === currentDate.getMonth() + 1;
+    const showYearBreakdown = earningsRange === "year";
+    const showMonthEntries = !showYearBreakdown && isCurrentEarningsMonth;
+    const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+
+    let yearBreakdownHtml = "";
+    if (showYearBreakdown) {
+      const monthTotals = Object.create(null);
+      (data.months || []).forEach(function(item) {
+        monthTotals[Number(item.month)] = Number(item.totalEarned || 0);
+      });
+      const monthsToShow = earningsYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12;
+      yearBreakdownHtml =
+        '<div class="sectionhead"><h2>По месяцам</h2></div>' +
+        '<div>' + Array.from({length:monthsToShow},function(_,index) {
+          const monthNumber = index + 1;
+          const amount = monthTotals[monthNumber] || 0;
+          return '<button type="button" class="earningrow" data-open-earnings-month="' + monthNumber + '" style="width:100%;text-align:left;background:transparent;border-left:0;border-right:0;border-top:0;color:inherit;font:inherit;cursor:pointer">' +
+            '<span class="earningname">' + monthNames[index] + '</span><span class="earningamount">' + money(amount) + '</span>' +
+          '</button>';
+        }).join("") + '</div>';
+    }
+
     content.innerHTML =
       '<div class="periods" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
         '<label class="field" style="flex:1;min-width:120px"><span>Год</span><select id="earnings-year">' +
-          Array.from({length: Math.max(1, new Date().getFullYear() - 2026 + 1)}, function(_,i){ return new Date().getFullYear() - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
+          Array.from({length: Math.max(1, currentDate.getFullYear() - 2026 + 1)}, function(_,i){ return currentDate.getFullYear() - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
         '</select></label>' +
         '<label class="field" style="flex:1;min-width:140px"><span>Месяц</span><select id="earnings-month">' +
-          ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"].map(function(name,i){ return '<option value="' + (i+1) + '"' + (i+1===earningsMonth?' selected':'') + '>' + name + '</option>'; }).join("") +
+          monthNames.map(function(name,i){ return '<option value="' + (i+1) + '"' + (i+1===earningsMonth?' selected':'') + '>' + name + '</option>'; }).join("") +
         '</select></label>' +
       '</div>' +
       '<div class="periods">' +
@@ -2125,18 +2198,28 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '<button class="pill ' + (earningsRange==="second-half"?"active":"") + '" data-range="second-half">16–' + new Date(earningsYear,earningsMonth,0).getDate() + '</button>'
           : '') +
       '</div>' +
-      '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + (showEarningsDetails ? Number(data.count || 0) + ' услуг · ' : '') + esc(data.periodLabel || "") + '</div></section>' +
-      (showEarningsDetails
-        ? '<div class="sectionhead"><h2>' + entriesHeading + '</h2><span class="count">' + visibleEntries.length + (visibleEntries.length===100?"+":"") + '</span></div>' +
-          (visibleEntries.length ? '<div>' + visibleEntries.map(function(item){
-            return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + (isCurrentEarningsMonth ? ' · ' + Number(item.rate || 0) + '%' : '') + '</div></div><div><div class="earningamount">' + money(item.earned) + '</div>' + (isCurrentEarningsMonth ? '<div class="earningbase">из ' + money(item.amount) + '</div>' : '') + '</div></div>';
-          }).join("") + '</div>' : '<div class="empty">' + (isCurrentEarningsMonth ? 'За этот период услуг пока нет' : 'За этот месяц чаевых нет') + '</div>')
-        : '');
+      '<section class="hero"><div class="eyebrow">Твой заработок</div><div class="money">' + money(data.totalEarned) + '</div><div class="smallmuted">' + (showMonthEntries ? Number(data.count || 0) + ' услуг · ' : '') + esc(data.periodLabel || "") + '</div></section>' +
+      (showYearBreakdown
+        ? yearBreakdownHtml
+        : showMonthEntries
+          ? '<div class="sectionhead"><h2>Услуги</h2><span class="count">' + entries.length + (entries.length===500?"+":"") + '</span></div>' +
+            (entries.length ? '<div>' + entries.map(function(item){
+              return '<div class="earningrow"><div><div class="earningname">' + esc(item.description) + '</div><div class="earningdate">' + esc(dateText(item.service_date)) + ' · ' + Number(item.rate || 0) + '%</div></div><div><div class="earningamount">' + money(item.earned) + '</div><div class="earningbase">из ' + money(item.amount) + '</div></div></div>';
+            }).join("") + '</div>' : '<div class="empty">За этот период услуг пока нет</div>')
+          : '');
+
+    content.querySelectorAll("[data-open-earnings-month]").forEach(function(button) {
+      button.addEventListener("click",function() {
+        earningsMonth = Number(button.dataset.openEarningsMonth);
+        earningsRange = "month";
+        renderEarnings().catch(showError);
+      });
+    });
     const yearSelect = content.querySelector("#earnings-year");
     const monthSelect = content.querySelector("#earnings-month");
     yearSelect.addEventListener("change", function(){
       earningsYear = Number(yearSelect.value);
-      if (earningsYear === new Date().getFullYear() && earningsMonth > new Date().getMonth()+1) earningsMonth = new Date().getMonth()+1;
+      if (earningsYear === currentDate.getFullYear() && earningsMonth > currentDate.getMonth()+1) earningsMonth = currentDate.getMonth()+1;
       if (earningsRange === "first-half" || earningsRange === "second-half") earningsRange = "month";
       renderEarnings().catch(showError);
     });
@@ -2152,6 +2235,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
     });
   }
+
   async function navigate(screen) {
     currentScreen = screen;
     clearObjectUrls();
