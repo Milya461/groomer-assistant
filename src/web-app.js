@@ -1518,20 +1518,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     ["species","Вид","select"],
     ["breed","Порода","input"],
     ["age","Возраст","input"],
-    ["coat_features","Особенности шерсти","textarea"],
-    ["matting_tendency","Склонность к колтунам","textarea"],
-    ["sensitive_areas","Чувствительные зоны","textarea"],
-    ["clipper_reaction","Реакция на машинку","textarea"],
-    ["dryer_reaction","Реакция на фен","textarea"],
-    ["nail_clipper_reaction","Реакция на когтерез","textarea"],
-    ["warnings","Предупреждения","textarea"],
-    ["notes","Заметки","textarea"]
+    ["comment","Комментарий","textarea"]
   ];
 
   function petCardFormHtml(pet) {
-    const fieldsHtml = PET_CARD_FIELDS.filter(function(field) {
-      return !(field[0] === "clipper_reaction" && isSpitzBreed(pet));
-    }).map(function(field) {
+    const fieldsHtml = PET_CARD_FIELDS.map(function(field) {
       const key = field[0], label = field[1], type = field[2];
       if (type === "select") {
         return '<label class="field"><span>' + esc(label) + '</span><select name="species" required>' +
@@ -1777,29 +1768,13 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       : '<span class="profile-fallback">' + esc(coverInitials) + '</span>';
     const cardFields = [
       ["body_length","Длина корпуса"],
-      ["legs_length","Длина лап"],
-      ["face_length","Длина морды"],
-      ["tail_length","Длина хвоста"],
-      ["head_shape","Форма головы"],
-      ["paws_shape","Форма лап"],
-      ["attachments","Насадки"],
-      ["blades","Ножи"],
-      ["owner_preferences","Пожелания владельца"],
-      ["next_visit_changes","К следующему визиту"]
+      ["legs_length","Длина лап"]
     ];
 
     const cardSection = pet.species === "dog" && !isGroomingCardExcluded(pet)
       ? '<section class="detailsection"><div class="sectionhead" style="margin:0 0 12px"><h3 style="margin:0">Карта стрижки</h3></div>' +
         detailRow("Длина корпуса",card.body_length) +
         detailRow("Длина лап",card.legs_length) +
-        detailRow("Длина морды",card.face_length) +
-        detailRow("Длина хвоста",card.tail_length) +
-        detailRow("Форма головы",card.head_shape) +
-        detailRow("Форма лап",card.paws_shape) +
-        detailRow("Насадки",card.attachments) +
-        detailRow("Ножи",card.blades) +
-        detailRow("Пожелания владельца",card.owner_preferences) +
-        detailRow("К следующему визиту",card.next_visit_changes) +
         '<button class="btn secondary full" type="button" id="edit-card">Редактировать карту</button>' +
         '<div id="card-form-slot"></div>' +
         '</section>'
@@ -1822,13 +1797,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
       '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
-      detailRow("Особенности шерсти",pet.coat_features) +
-      detailRow("Предупреждения",pet.warnings) +
-      detailRow("Чувствительные зоны",pet.sensitive_areas) +
-      (isSpitzBreed(pet) ? "" : detailRow("Реакция на машинку",pet.clipper_reaction)) +
-      detailRow("Реакция на фен",pet.dryer_reaction) +
-      detailRow("Реакция на когтерез",pet.nail_clipper_reaction) +
-      detailRow("Заметки",pet.notes) + '</section>' +
+      detailRow("Комментарий",pet.comment) + '</section>' +
       '<button class="btn secondary full" type="button" id="edit-pet">Редактировать карточку питомца</button>' +
       '<div id="pet-card-editor-slot"></div>' +
       cardSection +
