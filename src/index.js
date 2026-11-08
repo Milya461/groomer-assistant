@@ -200,7 +200,7 @@ async function answerCallback(env, callbackId, text = "") {
 
 
 async function migrateLegacyPetComments(env) {
-  const settingKey = "pet_card_comment_migration_v1";
+  const settingKey = "pet_card_comment_migration_v2";
   const current = await env.DB.prepare(
     "SELECT setting_value, updated_at FROM assistant_settings WHERE setting_key = ?"
   ).bind(settingKey).first();
