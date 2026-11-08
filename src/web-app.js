@@ -2377,27 +2377,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '</div>';
       }
       return filtered.map(function(item) {
-        const visitCount = Number(item.visitsCount || 0);
         return '<article class="history-card">' +
-          '<div class="history-top"><div><div class="history-name">' + esc(item.breed) + '</div>' +
-          '<div class="history-meta">' + esc(item.service) + '</div></div>' +
+          '<div class="history-top"><div class="history-name">' + esc(item.breed) + ' — ' + esc(item.service) + '</div>' +
           '<div class="history-time">' + esc(formatDuration(item.averageMinutes)) + '</div></div>' +
-          '<div class="history-meta">Среднее время · ' + visitCount + ' ' +
-          (visitCount === 1 ? 'визит' : visitCount >= 2 && visitCount <= 4 ? 'визита' : 'визитов') +
-          (item.lastVisit ? ' · последний ' + esc(dateText(item.lastVisit)) : '') +
-          '</div></article>';
+          '</article>';
       }).join("");
     }
 
     content.innerHTML =
-      '<div class="hero"><div class="eyebrow">ФАКТИЧЕСКАЯ ДЛИТЕЛЬНОСТЬ</div>' +
-        '<div class="money">' + Number(data.visitsCount || 0) + '</div>' +
-        '<div class="smallmuted">завершённых визитов учтено в статистике</div></div>' +
       '<div class="searchbar"><input id="service-time-search" type="search" placeholder="Найти породу или услугу" autocomplete="off"></div>' +
-      '<div class="sectionhead" style="margin-top:0"><div><h2>Среднее время</h2>' +
-        '<div class="smallmuted" style="margin-top:5px">Отдельно для каждой породы и основной услуги</div></div>' +
-        '<span class="count">' + stats.length + ' сочетаний</span></div>' +
-      '<div class="smallmuted" style="margin:-3px 0 12px">Время считается от начала до завершения всего визита. Дополнительные услуги, выполненные вместе с основной, тоже входят в длительность.</div>' +
       '<div id="service-time-list">' + rowsHtml("") + '</div>';
 
     const search = document.getElementById("service-time-search");
