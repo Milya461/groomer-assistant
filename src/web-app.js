@@ -2017,18 +2017,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       const petVisitsPageSize = 50;
 
       function petVisitCardHtml(item) {
-        const visitPhotos = item.photos || [];
         return '<article class="history-card" data-pet-visit-id="' + Number(item.id) + '">' +
           '<div class="history-top"><div><div class="history-name">' + esc(dateText(item.appointment_date)) + '</div><div class="history-meta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? ' · ' + esc(formatDuration(item.actual_duration_minutes)) : '') + '</div></div>' +
           '<div class="history-time">' + esc(item.actual_start_time || item.appointment_time || "—") + '</div></div>' +
           (item.procedures ? '<div class="history-procedures">' + esc(item.procedures) + '</div>' : '') +
-          '<div class="smallmuted history-photo-label">Фото после визита</div>' +
-          (visitPhotos.length
-            ? '<div class="history-photos">' + visitPhotos.map(function(photo) {
-                return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-              }).join("") + '</div>'
-            : '<div class="smallmuted">Для этого визита фото ещё не добавлены.</div>') +
-          (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
+          visitPhotoSectionHtml(item) +
           '<div class="pet-foot"><span>ВИЗИТ № ' + Number(item.id) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (Number(item.earned || 0) ? money(item.earned) : '') + '</span></div>' +
           '</article>';
       }
@@ -2044,39 +2037,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
               "visit"
             ));
           });
-          const input = article && article.querySelector("[data-after-photo-upload]");
-          if (input) {
-            input.addEventListener("change", async function() {
-              const imageFile = input.files && input.files[0];
-              if (!imageFile) return;
-              if (!String(imageFile.type || "").startsWith("image/")) {
-                showError(new Error("Выбери изображение."));
-                return;
-              }
-              if (imageFile.size > 10 * 1024 * 1024) {
-                showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
-                return;
-              }
-              input.disabled = true;
-              try {
-                const formData = new FormData();
-                const preparedPhoto = await preparePhotoForStorage(imageFile);
-                formData.append("photo", preparedPhoto, preparedPhoto.name);
-                await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
-                  method:"POST",
-                  body:formData
-                });
-                await renderPet(id);
-              } catch(error) {
-                showError(error);
-                input.disabled = false;
-              }
-            });
-          }
+          if (article) bindVisitPhotoUpload(article, function(){return renderPet(id);});
         });
         await Promise.all(photoJobs);
       }
-
       async function loadPetVisitPage() {
         const moreSlot = document.getElementById("pet-history-more-slot");
         const moreButton = document.getElementById("pet-history-more");
@@ -2130,13 +2094,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>' +
         '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
         '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
-        '<div class="smallmuted history-photo-label">Фото после визита</div>' +
-        ((item.photos || []).length
-          ? '<div class="history-photos">' + item.photos.map(function(photo) {
-              return '<div class="photo-tile history-photo"><img alt="Фото после визита" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
-            }).join("") + '</div>'
-          : '<div class="smallmuted">Фотографий пока нет.</div>') +
-        (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после визита<input type="file" accept="image/*" data-after-photo-upload="' + Number(item.id) + '"></label>' : '') +
+        visitPhotoSectionHtml(item) +
         '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
         (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
         '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Открыть карточку питомца ↗</button>' +
@@ -2173,34 +2131,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ));
       });
     });
-    content.querySelectorAll("[data-after-photo-upload]").forEach(function(input) {
-      input.addEventListener("change",async function() {
-        const imageFile = input.files && input.files[0];
-        if (!imageFile) return;
-        if (!String(imageFile.type || "").startsWith("image/")) {
-          showError(new Error("Выбери изображение."));
-          return;
-        }
-        if (imageFile.size > 10 * 1024 * 1024) {
-          showError(new Error("Размер фотографии должен быть не больше 10 МБ."));
-          return;
-        }
-        input.disabled = true;
-        try {
-          const formData = new FormData();
-          const preparedPhoto = await preparePhotoForStorage(imageFile);
-          formData.append("photo", preparedPhoto, preparedPhoto.name);
-          await api("/api/appointments/" + Number(input.dataset.afterPhotoUpload) + "/after-photos", {
-            method:"POST",
-            body:formData
-          });
-          await renderVisits();
-        } catch(error) {
-          showError(error);
-          input.disabled = false;
-        }
-      });
-    });
+    bindVisitPhotoUpload(content, function(){return renderVisits();});
     content.querySelectorAll("[data-finish-history-visit]").forEach(function(button) {
       button.addEventListener("click",function() {
         const article = button.closest(".history-card");
