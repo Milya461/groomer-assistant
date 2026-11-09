@@ -5637,7 +5637,8 @@ async function handleWebApi(request, env) {
 
     if (request.method === "GET" && path === "/api/service-time-stats") {
       const result = await env.DB.prepare(`
-        SELECT a.appointment_date, a.procedures, a.actual_duration_minutes, d.breed
+        SELECT a.appointment_date, a.procedures, a.actual_duration_minutes,
+               d.breed, d.breed_variant
         FROM appointments a
         JOIN dogs d ON d.id = a.dog_id
         WHERE a.status = 'completed'
@@ -5651,19 +5652,26 @@ async function handleWebApi(request, env) {
       let visitsCount = 0;
       for (const visit of result.results || []) {
         const breed = String(visit.breed || "").trim();
+        const rawVariant = String(visit.breed_variant || "").trim();
+        const variantAlreadyInBreed = rawVariant &&
+          breed.toLocaleLowerCase("ru-RU").includes(rawVariant.toLocaleLowerCase("ru-RU"));
+        const variantLabel = rawVariant && !variantAlreadyInBreed
+          ? rawVariant.charAt(0).toLocaleUpperCase("ru-RU") + rawVariant.slice(1)
+          : "";
+        const breedLabel = [breed, variantLabel].filter(Boolean).join(" ");
         const duration = Number(visit.actual_duration_minutes || 0);
         const firstProcedure = String(visit.procedures || "").split(";")[0].trim();
         const separator = firstProcedure.indexOf(":");
         const rawService = (separator >= 0 ? firstProcedure.slice(0, separator) : firstProcedure).trim();
         const service = /^комплекс$/i.test(rawService) ? "По красивой" : rawService;
 
-        if (!breed || !service || !Number.isFinite(duration) || duration <= 0) continue;
+        if (!breedLabel || !service || !Number.isFinite(duration) || duration <= 0) continue;
         if (service.toLocaleLowerCase("ru-RU").startsWith("корректировка итоговой суммы")) continue;
 
-        const key = breed.toLocaleLowerCase("ru-RU") + "::" + service.toLocaleLowerCase("ru-RU");
+        const key = breedLabel.toLocaleLowerCase("ru-RU") + "::" + service.toLocaleLowerCase("ru-RU");
         let group = groups.get(key);
         if (!group) {
-          group = { breed, service, totalMinutes: 0, visitsCount: 0, lastVisit: visit.appointment_date || null };
+          group = { breed: breedLabel, service, totalMinutes: 0, visitsCount: 0, lastVisit: visit.appointment_date || null };
           groups.set(key, group);
         }
         group.totalMinutes += duration;
