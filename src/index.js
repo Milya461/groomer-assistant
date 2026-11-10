@@ -305,6 +305,54 @@ async function migrateLegacyPetComments(env) {
   }
 }
 
+async function seedWorkScheduleDec2026Jan2027(env) {
+  const settingKey = "work_schedule_dec2026_jan2027_v1";
+  const existing = await env.DB.prepare(
+    "SELECT setting_value FROM assistant_settings WHERE setting_key = ?"
+  ).bind(settingKey).first();
+  if (existing?.setting_value === "done") return;
+
+  const workDays = [
+    "2026-12-03", "2026-12-04", "2026-12-07", "2026-12-08",
+    "2026-12-11", "2026-12-12", "2026-12-15", "2026-12-16",
+    "2026-12-19", "2026-12-20", "2026-12-23", "2026-12-24",
+    "2026-12-27", "2026-12-28", "2026-12-30",
+    "2027-01-05", "2027-01-08", "2027-01-09", "2027-01-12",
+    "2027-01-13", "2027-01-16", "2027-01-17", "2027-01-20",
+    "2027-01-21", "2027-01-24", "2027-01-25", "2027-01-28",
+    "2027-01-29"
+  ];
+
+  const statements = [
+    env.DB.prepare(
+      "DELETE FROM assistant_work_shifts WHERE shift_date >= ? AND shift_date <= ?"
+    ).bind("2026-12-01", "2027-01-31")
+  ];
+
+  for (const shiftDate of workDays) {
+    statements.push(env.DB.prepare(`
+      INSERT INTO assistant_work_shifts (
+        shift_date, start_time, end_time, reminders_sent, updated_at
+      ) VALUES (?, '10:00', '20:00', '[]', CURRENT_TIMESTAMP)
+      ON CONFLICT(shift_date) DO UPDATE SET
+        start_time = excluded.start_time,
+        end_time = excluded.end_time,
+        reminders_sent = '[]',
+        updated_at = CURRENT_TIMESTAMP
+    `).bind(shiftDate));
+  }
+
+  statements.push(env.DB.prepare(`
+    INSERT INTO assistant_settings (setting_key, setting_value, updated_at)
+    VALUES (?, 'done', CURRENT_TIMESTAMP)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      setting_value = 'done',
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(settingKey));
+
+  await env.DB.batch(statements);
+}
+
 async function initializeDatabase(env) {
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -443,6 +491,7 @@ await env.DB.prepare(`
   }
 
   await migrateLegacyPetComments(env);
+  await seedWorkScheduleDec2026Jan2027(env);
 }
 
 const HISTORICAL_EARNINGS_2026 = [
