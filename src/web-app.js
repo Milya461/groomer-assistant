@@ -243,6 +243,14 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 .calendar-day.is-working{border-color:#111;background:#f7f7f7}
 .calendar-day.is-selected{outline:2px solid #111;outline-offset:1px}
 .calendar-day.is-empty{border-color:transparent;background:transparent;pointer-events:none}
+.calendar-day.is-multi-selected{background:#111!important;color:#fff!important;border-color:#111!important;outline:2px solid #111;outline-offset:1px}
+.calendar-day.is-multi-selected .calendar-day-number{background:#fff!important;color:#111!important}
+.calendar-multi-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 13px}
+.calendar-multi-panel{margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:14px;background:#fafafa}
+.calendar-multi-panel[hidden]{display:none}
+.calendar-multi-panel .calendar-time-fields{margin-top:12px}
+.calendar-multi-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.calendar-multi-actions .btn{flex:1}
 .calendar-day-number{font-size:13px;font-weight:780}
 .calendar-day-time{font-size:9px;color:#555;line-height:1.2;font-variant-numeric:tabular-nums}
 .calendar-day-dot{width:5px;height:5px;border-radius:50%;background:#111;display:block}
@@ -369,6 +377,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let serviceTimeQuery = "";
   let calendarMonth = "";
   let calendarSelectedDate = "";
+  let calendarMultiSelectMode = false;
+  let calendarSelectedDates = new Set();
   let lastDashboard = null;
   let objectUrls = [];
   let sessionToken = "";
@@ -1583,7 +1593,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         (shift ? ' is-working' : '') +
         (weekend ? ' is-weekend' : '') +
         (isToday ? ' is-today' : '') +
-        (active ? ' is-selected' : '') +
+        (active && !calendarMultiSelectMode ? ' is-selected' : '') +
+        (calendarMultiSelectMode && calendarSelectedDates.has(dateValue) ? ' is-multi-selected' : '') +
         '" data-calendar-date="' + dateValue + '" aria-label="' + esc(calendarDateLabel(dateValue)) +
         (shift ? ', рабочий день' : ', выходной') +
         (dayAppointments.length ? ', записей: ' + dayAppointments.length : '') + '">' +
@@ -1593,6 +1604,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '</button>';
     }).join("");
     content.innerHTML =
+      '<div class="calendar-multi-toolbar">' +
+        '<div class="smallmuted">' + (calendarMultiSelectMode ? 'Нажимай на даты, чтобы выбрать несколько дней.' : 'Можно добавить смены сразу на несколько дат.') + '</div>' +
+        '<button type="button" class="btn secondary" id="calendar-multi-toggle">' + (calendarMultiSelectMode ? 'Отменить выбор' : 'Выбрать дни') + '</button>' +
+      '</div>' +
       '<div class="calendar-toolbar">' +
         '<button type="button" class="calendar-month-btn" id="calendar-prev" aria-label="Предыдущий месяц">‹</button>' +
         '<div class="calendar-month-title">' + esc(calendarMonthLabel(calendarMonth)) + '</div>' +
@@ -1600,6 +1615,17 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       '</div>' +
       '<div class="calendar-grid calendar-weekdays">' + weekdays + '</div>' +
       '<div class="calendar-grid">' + dayCells + '</div>' +
+      '<section class="calendar-multi-panel" id="calendar-multi-panel" ' + (calendarMultiSelectMode ? '' : 'hidden') + '>' +
+        '<div class="sectionhead" style="margin:0"><div><h2>Добавить график работы</h2><div class="smallmuted" style="margin-top:5px">Выбрано дней: ' + calendarSelectedDates.size + '</div></div></div>' +
+        '<div class="calendar-time-fields">' +
+          '<label class="calendar-time-field"><span>НАЧАЛО СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-multi-start" value="10:00" required></label>' +
+          '<label class="calendar-time-field"><span>КОНЕЦ СМЕНЫ</span><input type="time" class="calendar-time-input" id="calendar-multi-end" value="20:00" required></label>' +
+        '</div>' +
+        '<div class="calendar-multi-actions">' +
+          '<button type="button" class="btn" id="calendar-multi-save" ' + (calendarSelectedDates.size ? '' : 'disabled') + '>Добавить график работы</button>' +
+          '<button type="button" class="btn secondary" id="calendar-multi-clear">Очистить даты</button>' +
+        '</div>' +
+      '</section>' +
       '<div class="calendar-legend">' +
         '<span class="calendar-legend-item"><i class="calendar-legend-mark working"></i>Рабочий день</span>' +
         '<span class="calendar-legend-item"><i class="calendar-legend-mark today"></i>Сегодня</span>' +
@@ -1650,11 +1676,48 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
     bindStartTimeEditorButtons(content, function(){return renderCalendar();});
     bindAppointmentStatusButtons(content, function(){return renderCalendar();});
+    document.getElementById("calendar-multi-toggle").addEventListener("click",function() {
+      calendarMultiSelectMode = !calendarMultiSelectMode;
+      if (!calendarMultiSelectMode) calendarSelectedDates.clear();
+      renderCalendar().catch(showError);
+    });
+    document.getElementById("calendar-multi-clear").addEventListener("click",function() {
+      calendarSelectedDates.clear();
+      renderCalendar().catch(showError);
+    });
+    document.getElementById("calendar-multi-save").addEventListener("click",async function() {
+      const dates = Array.from(calendarSelectedDates).sort();
+      const startTime = document.getElementById("calendar-multi-start").value;
+      const endTime = document.getElementById("calendar-multi-end").value;
+      if (!dates.length) { showError(new Error("Выбери хотя бы один день в календаре.")); return; }
+      if (!startTime || !endTime || startTime >= endTime) { showError(new Error("Проверь время начала и окончания смены.")); return; }
+      const saveButton = document.getElementById("calendar-multi-save");
+      saveButton.disabled = true;
+      saveButton.textContent = "Добавляю график…";
+      try {
+        for (const shiftDate of dates) {
+          await api("/api/work-shifts", {method:"POST",body:JSON.stringify({date:shiftDate,startTime,endTime})});
+        }
+        calendarSelectedDates.clear();
+        calendarMultiSelectMode = false;
+        await renderCalendar();
+      } catch(error) {
+        showError(error);
+        saveButton.disabled = false;
+        saveButton.textContent = "Повторить добавление";
+      }
+    });
     document.getElementById("calendar-prev").addEventListener("click",function(){moveCalendarMonth(-1);});
     document.getElementById("calendar-next").addEventListener("click",function(){moveCalendarMonth(1);});
     content.querySelectorAll("[data-calendar-date]").forEach(function(button) {
       button.addEventListener("click",function() {
-        calendarSelectedDate = button.dataset.calendarDate;
+        const clickedDate = button.dataset.calendarDate;
+        if (calendarMultiSelectMode) {
+          if (calendarSelectedDates.has(clickedDate)) calendarSelectedDates.delete(clickedDate);
+          else calendarSelectedDates.add(clickedDate);
+        } else {
+          calendarSelectedDate = clickedDate;
+        }
         renderCalendar().catch(showError);
       });
     });
