@@ -2252,6 +2252,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="history-time">' + esc(time) + '</div></div>' +
         (["cancelled","no_show"].includes(item.status) ? "" : '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
         '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
+        (item.status === "completed" ? '<button type="button" class="inlineaction" data-edit-visit-price="' + Number(item.id) + '">Изменить стоимость визита</button>' : '') +
         '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
         '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
         visitPhotoSectionHtml(item) +
@@ -2268,6 +2269,31 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="empty">' + (visitsSearchQuery ? 'По этому имени визитов не найдено.' : 'История пока пустая. Завершённые визиты появятся здесь.') + '</div>') +
       (data.hasMore ? '<button type="button" class="btn secondary full" id="visits-load-more">Загрузить ещё визиты</button>' : '');
 
+    content.querySelectorAll("[data-edit-visit-price]").forEach(function(button) {
+      button.addEventListener("click",async function() {
+        const id = Number(button.dataset.editVisitPrice);
+        const item = visits.find(function(visit){return Number(visit.id) === id;});
+        const currentTotal = String(item && item.procedures || "").split(/;\\s*|\\n+/).reduce(function(sum,entry) {
+          const match = entry.match(/^(.+?):\\s*(-?\\d+(?:[.,]\\d{1,2})?)/);
+          return sum + (match ? Number(match[2].replace(",", ".")) : 0);
+        },0);
+        const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(/\\.00$/,""));
+        if (answer === null) return;
+        const total = Number(String(answer).replace(",", "."));
+        if (!Number.isFinite(total) || total <= 0 || total > 100000) {
+          showError(new Error("Укажи сумму больше 0 и не больше 100 000 ₽."));
+          return;
+        }
+        button.disabled = true;
+        try {
+          await api("/api/appointments/" + id + "/price", {method:"PUT",body:JSON.stringify({total})});
+          await renderVisits();
+        } catch(error) {
+          showError(error);
+          button.disabled = false;
+        }
+      });
+    });
     content.querySelectorAll("[data-toggle-history-detail]").forEach(function(button) {
       button.addEventListener("click",function() {
         const id = Number(button.dataset.toggleHistoryDetail);
