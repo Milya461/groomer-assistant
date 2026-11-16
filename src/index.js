@@ -5256,6 +5256,66 @@ async function handleWebApi(request, env) {
       }, 201);
     }
 
+    const editCompletedPriceMatch = path.match(/^\/api\/appointments\/(\d+)\/price$/);
+    if (request.method === "PUT" && editCompletedPriceMatch) {
+      const appointmentId = Number(editCompletedPriceMatch[1]);
+      let body;
+      try { body = await request.json(); }
+      catch { return webApiResponse({ error: "Не удалось прочитать новую сумму." }, 400); }
+      const targetTotal = Math.round(Number(body.total) * 100) / 100;
+      if (!Number.isFinite(targetTotal) || targetTotal <= 0 || targetTotal > 100000) {
+        return webApiResponse({ error: "Укажи сумму больше 0 и не больше 100 000 ₽." }, 400);
+      }
+      const appointment = await env.DB.prepare(
+        "SELECT id, status, procedures FROM appointments WHERE id = ?"
+      ).bind(appointmentId).first();
+      if (!appointment) return webApiResponse({ error: "Визит не найден." }, 404);
+      if (appointment.status !== "completed") return webApiResponse({ error: "Изменять стоимость можно только у завершённого визита." }, 409);
+
+      const entriesResult = await env.DB.prepare(
+        "SELECT id, description, amount, rate FROM earnings_entries WHERE appointment_id = ? AND source = 'visit' ORDER BY id"
+      ).bind(appointmentId).all();
+      const entries = entriesResult.results || [];
+      if (!entries.length) return webApiResponse({ error: "Для этого визита не найдены сохранённые услуги." }, 404);
+
+      const correctionLabel = "Корректировка итоговой суммы";
+      const baseEntries = entries.filter(entry => !String(entry.description || "").startsWith(correctionLabel));
+      const baseTotal = baseEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      const correction = Math.round((targetTotal - baseTotal) * 100) / 100;
+      const procedures = baseEntries.map(entry =>
+        String(entry.description) + ": " + Number(entry.amount || 0).toFixed(2).replace(/\\.?0+$/, "")
+      );
+      if (Math.abs(correction) >= 0.01) procedures.push(correctionLabel + ": " + correction.toFixed(2).replace(/\\.?0+$/, ""));
+
+      const statements = baseEntries.map(entry => env.DB.prepare(
+        "UPDATE earnings_entries SET earned = ROUND(amount * rate / 100, 2) WHERE id = ?"
+      ).bind(entry.id));
+      const oldCorrection = entries.find(entry => String(entry.description || "").startsWith(correctionLabel));
+      if (oldCorrection && Math.abs(correction) >= 0.01) {
+        statements.push(env.DB.prepare(
+          "UPDATE earnings_entries SET amount = ?, earned = ROUND(? * rate / 100, 2) WHERE id = ?"
+        ).bind(correction, correction, oldCorrection.id));
+      } else if (oldCorrection) {
+        statements.push(env.DB.prepare("DELETE FROM earnings_entries WHERE id = ?").bind(oldCorrection.id));
+      } else if (Math.abs(correction) >= 0.01) {
+        statements.push(env.DB.prepare(`
+          INSERT INTO earnings_entries (service_date, description, amount, rate, earned, appointment_id, source, source_id)
+          VALUES (?, ?, ?, 35, ROUND(? * 35 / 100, 2), ?, 'visit', ?)
+        `).bind(
+          (await env.DB.prepare("SELECT appointment_date FROM appointments WHERE id = ?").bind(appointmentId).first()).appointment_date,
+          correctionLabel, correction, correction, appointmentId, appointmentId + ":adjustment"
+        ));
+      }
+      statements.push(env.DB.prepare(
+        "UPDATE appointments SET procedures = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'completed'"
+      ).bind(procedures.join("; "), appointmentId));
+      await env.DB.batch(statements);
+      const updated = await env.DB.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total, COALESCE(SUM(earned),0) AS earned FROM earnings_entries WHERE appointment_id = ? AND source = 'visit'"
+      ).bind(appointmentId).first();
+      return webApiResponse({ ok: true, id: appointmentId, total: Number(updated.total || 0), earned: Number(updated.earned || 0) });
+    }
+
     const appointmentStatusMatch = path.match(/^\/api\/appointments\/(\d+)\/status$/);
     if (request.method === "POST" && appointmentStatusMatch) {
       const appointmentId = Number(appointmentStatusMatch[1]);
