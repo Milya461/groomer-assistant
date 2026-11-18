@@ -776,16 +776,43 @@ async function importHistoricalEarnings2026(env) {
   }
 }
 
-// A Worker isolate can serve many requests. Keep schema setup and the one-time
-// historical import out of the hot path after they have completed once.
-// Cloudflare may replace an isolate at any time; the database remains the source
-// of truth, so the next isolate safely rechecks the idempotent migrations.
+// Database migrations are versioned in D1: after the first successful migration,
+// later cold isolates perform only a small version check instead of repeating
+// every CREATE/ALTER statement and the legacy-data migration.
+// Bump this value whenever initializeDatabase receives a new schema migration.
+const WEB_API_SCHEMA_VERSION = "2026-11-19-v1";
 let webApiDatabaseInitializationPromise = null;
 let webApiHistoricalImportPromise = null;
 
 async function ensureWebApiDatabaseReady(env) {
   if (!webApiDatabaseInitializationPromise) {
-    webApiDatabaseInitializationPromise = initializeDatabase(env).catch(error => {
+    webApiDatabaseInitializationPromise = (async () => {
+      const settingKey = "pretty_dogs_web_schema_version";
+      let currentVersion = null;
+
+      try {
+        const row = await env.DB.prepare(
+          "SELECT setting_value FROM assistant_settings WHERE setting_key = ?"
+        ).bind(settingKey).first();
+        currentVersion = row?.setting_value || null;
+      } catch (error) {
+        // A database being initialized for the first time does not have this table yet.
+        if (!String(error?.message || error).toLowerCase().includes("no such table")) {
+          throw error;
+        }
+      }
+
+      if (currentVersion !== WEB_API_SCHEMA_VERSION) {
+        await initializeDatabase(env);
+        await env.DB.prepare(`
+          INSERT INTO assistant_settings (setting_key, setting_value, updated_at)
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET
+            setting_value = excluded.setting_value,
+            updated_at = CURRENT_TIMESTAMP
+        `).bind(settingKey, WEB_API_SCHEMA_VERSION).run();
+      }
+    })().catch(error => {
       webApiDatabaseInitializationPromise = null;
       throw error;
     });
