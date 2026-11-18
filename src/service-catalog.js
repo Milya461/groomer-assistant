@@ -236,7 +236,9 @@ function baseServicesForPet(pet) {
   ];
   const rule = rules.find(item => containsAny(breed, item.aliases));
   if (rule) return rule.prices.map(([label, price], index) => groom("rule-" + index + "-" + normalize(label), label, price));
-  return [groom("default", "Гигиена", 2500)];
+  // Do not guess a price for an unknown breed. Let the groomer enter the
+  // actual main service and amount instead of silently applying 2,500 ₽.
+  return [item("groom:manual", "Основная услуга · цена вручную", 0, { type: "base", editable: true })];
 }
 
 export function getServiceOptions(pet) {
