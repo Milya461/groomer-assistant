@@ -5167,7 +5167,7 @@ async function handleWebApi(request, env) {
         const base64 = String(photo?.base64 || "");
         if (!["visitPhotos", "groomingPhotos", "coverPhotos"].includes(collection) ||
             !Number.isSafeInteger(recordId) || recordId <= 0 ||
-            !/^image\\/[a-z0-9.+-]+$/i.test(contentType) ||
+            !contentType.toLowerCase().startsWith("image/") ||
             !base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
             base64.length > 1_900_000) {
           return webApiResponse({ error: "В копии обнаружена некорректная фотография." }, 400);
@@ -6074,7 +6074,7 @@ async function handleWebApi(request, env) {
         filterBindings.push(requestedStatus);
       }
       if (selectedMonth) {
-        if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth)) {
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth)) {
           return webApiResponse({ error: "Выбери корректный месяц." }, 400);
         }
         const [year, monthNumber] = selectedMonth.split("-").map(Number);
