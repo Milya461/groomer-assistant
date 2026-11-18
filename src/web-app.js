@@ -1026,8 +1026,14 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           const button = confirmBox.querySelector("[data-finish-confirm-submit]");
           const currentServices = getSelections();
           const currentTotal = Number(totalInput.value);
-          if (!currentServices.some(function(service){return service.id.startsWith("groom:");})) {
-            errorBox.textContent = "Выбери одну основную услугу.";
+          const primaryServiceCount = currentServices.filter(function(service){return service.id.startsWith("groom:");}).length;
+          if (primaryServiceCount !== 1) {
+            errorBox.textContent = "Выбери ровно одну основную услугу.";
+            errorBox.style.display = "block";
+            return;
+          }
+          if (new Set(currentServices.map(function(service){return service.id;})).size !== currentServices.length) {
+            errorBox.textContent = "Одна и та же услуга выбрана несколько раз.";
             errorBox.style.display = "block";
             return;
           }
