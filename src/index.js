@@ -490,6 +490,18 @@ await env.DB.prepare(`
     if (!String(error?.message || error).includes("duplicate column name")) throw error;
   }
 
+  await env.DB.batch([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_dogs_name_nocase ON dogs(name COLLATE NOCASE, id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_appointments_date_queue ON appointments(appointment_date, queue_position, appointment_time, id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_appointments_calendar_date_time ON appointments(appointment_date, appointment_time, queue_position, id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_appointments_history ON appointments(appointment_date DESC, id DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_appointments_dog_history ON appointments(dog_id, appointment_date DESC, id DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_earnings_entries_service_date ON earnings_entries(service_date, id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_earnings_entries_appointment ON earnings_entries(appointment_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_visit_photos_appointment ON visit_photos(appointment_id, photo_type, created_at DESC, id DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_grooming_card_photos_dog ON grooming_card_photos(dog_id, id)")
+  ]);
+
   await migrateLegacyPetComments(env);
   await seedWorkScheduleDec2026Jan2027(env);
 }
@@ -762,6 +774,38 @@ async function importHistoricalEarnings2026(env) {
     `).bind(JSON.stringify(result), settingKey).run();
     throw error;
   }
+}
+
+// A Worker isolate can serve many requests. Keep schema setup and the one-time
+// historical import out of the hot path after they have completed once.
+// Cloudflare may replace an isolate at any time; the database remains the source
+// of truth, so the next isolate safely rechecks the idempotent migrations.
+let webApiDatabaseInitializationPromise = null;
+let webApiHistoricalImportPromise = null;
+
+async function ensureWebApiDatabaseReady(env) {
+  if (!webApiDatabaseInitializationPromise) {
+    webApiDatabaseInitializationPromise = initializeDatabase(env).catch(error => {
+      webApiDatabaseInitializationPromise = null;
+      throw error;
+    });
+  }
+
+  await webApiDatabaseInitializationPromise;
+
+  if (!webApiHistoricalImportPromise) {
+    webApiHistoricalImportPromise = importHistoricalEarnings2026(env).then(result => {
+      if (!["completed", "completed_with_conflicts"].includes(result?.status)) {
+        webApiHistoricalImportPromise = null;
+      }
+      return result;
+    }).catch(error => {
+      webApiHistoricalImportPromise = null;
+      throw error;
+    });
+  }
+
+  await webApiHistoricalImportPromise;
 }
 
 async function getGroomingCard(env, dogId) {
@@ -4976,8 +5020,7 @@ async function handleWebApi(request, env) {
     const auth = await authenticateWebApp(request, env);
     if (auth.error) return webApiResponse({ error: auth.error }, auth.status);
 
-    await initializeDatabase(env);
-    await importHistoricalEarnings2026(env);
+    await ensureWebApiDatabaseReady(env);
     if (auth.standalone) auth.user = { id: "web-app" };
 
     const date = localDate();
@@ -5557,23 +5600,14 @@ async function handleWebApi(request, env) {
       const query = String(url.searchParams.get("q") || "").trim().slice(0, 100);
       const pattern = "%" + query + "%";
       const result = await env.DB.prepare(`
-        SELECT id, name, species, breed, breed_variant, comment,
-               (
-                 SELECT pcp.dog_id
-                 FROM pet_cover_photos pcp
-                 WHERE pcp.dog_id = dogs.id
-               ) AS cover_photo_id,
-               CASE
-                 WHEN EXISTS (
-                   SELECT 1 FROM pet_cover_photos pcp
-                   WHERE pcp.dog_id = dogs.id
-                 ) THEN 'cover'
-                 ELSE NULL
-               END AS cover_photo_type
-        FROM dogs
-        WHERE COALESCE(is_temporary, 0) = 0
-          AND (? = '' OR name LIKE ? COLLATE NOCASE OR COALESCE(breed, '') LIKE ? COLLATE NOCASE)
-        ORDER BY name COLLATE NOCASE, id
+        SELECT d.id, d.name, d.species, d.breed, d.breed_variant,
+               pcp.dog_id AS cover_photo_id,
+               CASE WHEN pcp.dog_id IS NOT NULL THEN 'cover' ELSE NULL END AS cover_photo_type
+        FROM dogs d
+        LEFT JOIN pet_cover_photos pcp ON pcp.dog_id = d.id
+        WHERE COALESCE(d.is_temporary, 0) = 0
+          AND (? = '' OR d.name LIKE ? COLLATE NOCASE OR COALESCE(d.breed, '') LIKE ? COLLATE NOCASE)
+        ORDER BY d.name COLLATE NOCASE, d.id
         LIMIT 100
       `).bind(query, pattern, pattern).all();
 
