@@ -47,6 +47,26 @@ main{min-height:300px;padding-top:25px}
 .notice{color:#222;text-align:left;max-width:600px;line-height:1.65}
 .error{margin:10px 0;padding:12px 14px;border:1px solid #d5d5d5;border-radius:10px;font-size:13px}
 .dashboard-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,.9fr);gap:14px;align-items:stretch}
+.dashboard-earnings{padding:19px 22px;margin-bottom:14px}
+.dashboard-earnings .money{margin:8px 0 2px}
+.dashboard-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.dashboard-actions .btn{flex:1 1 170px}
+.backup-tools{margin:0 0 17px;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.backup-tools summary{cursor:pointer;font-size:11px;font-weight:700;color:#555;list-style-position:inside}
+.backup-tools[open] summary{margin-bottom:10px}
+.backup-tools-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.backup-tools-actions .inlineaction{margin:0}
+.backup-preview{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:9px}
+.backup-preview strong{display:block;font-size:12px;margin-bottom:6px}
+.backup-preview .inlineaction{margin-top:9px}
+.service-template-box{margin:14px 0;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:#fafafa}
+.service-template-box summary{cursor:pointer;font-size:12px;font-weight:800;list-style-position:inside}
+.service-template-box[open] summary{margin-bottom:10px}
+.service-template-box .service-choice-controls{margin-top:8px}
+.visit-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin:0 0 15px}
+.visit-filters label{display:block;min-width:0}
+.visit-filters label span{display:block;margin:0 0 5px;font-size:10px;color:var(--muted)}
+.visit-filters select,.visit-filters input{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px 11px;background:#fff;color:#111;font:inherit;font-size:12px}
 .hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:#fff;margin-bottom:14px}
 .hero.dark{background:#111;color:#fff;border-color:#111}
 .hero .eyebrow{color:#888}
@@ -220,6 +240,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   .hero-heading{font-size:21px}
   .money{font-size:34px}
   .dashboard-grid{gap:0}
+  .dashboard-actions{gap:7px}
+  .dashboard-actions .btn{flex:1 1 100%}
+  .backup-tools{padding:9px 10px}
+  .visit-filters{gap:7px}
+  .visit-filters select,.visit-filters input{padding:10px 8px;font-size:11px}
   .pet-grid{grid-template-columns:1fr;gap:8px}
   .pet-card{border-radius:12px;padding:8px;gap:9px}
   .pet-cover{width:48px;height:48px;flex-basis:48px;aspect-ratio:1}
