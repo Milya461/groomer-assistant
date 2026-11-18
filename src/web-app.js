@@ -161,6 +161,8 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:9px 0;background:#fff}
 .history-photos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
 .history-photo{aspect-ratio:1;border-radius:8px}
+.appointment-pet-search{display:flex;gap:8px;margin:12px 0 8px}
+.appointment-pet-search input{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font:inherit;font-size:12px}
 .history-filters{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:0 0 18px}
 .history-filters label{display:block;min-width:0}
 .history-filters label span{display:block;font-size:10px;color:var(--muted);margin:0 0 5px}
@@ -1454,7 +1456,24 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (!slot) return;
     slot.innerHTML = '<div class="loading">Загружаю питомцев…</div>';
     const petsData = await api("/api/pets");
-    const pets = petsData.pets || [];
+    let pets = petsData.pets || [];
+    const selectedExistingPetId = Number(appointment ? appointment.dog_id : preselectedPetId || 0);
+    if (selectedExistingPetId && !pets.some(function(pet){return Number(pet.id) === selectedExistingPetId;})) {
+      try {
+        const selectedPetData = await api("/api/pets/" + selectedExistingPetId);
+        if (selectedPetData.pet) pets.unshift(selectedPetData.pet);
+      } catch(error) {
+        if (appointment && appointment.name) {
+          pets.unshift({
+            id:selectedExistingPetId,
+            name:appointment.name,
+            breed:appointment.breed || "",
+            breed_variant:appointment.breed_variant || "",
+            species:appointment.species || "dog"
+          });
+        }
+      }
+    }
     const editing = !!appointment;
     const noCardAppointment = editing && Number(appointment.is_temporary || 0) === 1;
     const dateValue = appointment
@@ -1473,6 +1492,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<h2>' + (editing ? 'Изменить запись' : 'Добавить запись') + '</h2>' +
         '<div class="smallmuted">Выбери существующего питомца или добавь нового — его карточка сохранится для следующих визитов.</div>' +
         '<form id="appointment-edit-form">' +
+          '<div class="appointment-pet-search"><input type="search" id="appointment-pet-search" placeholder="Найти по имени или породе" autocomplete="off"><button type="button" id="appointment-pet-search-btn" class="inlineaction">Найти</button></div>' +
           '<label class="field"><span>ПИТОМЕЦ</span><select name="dogId" required>' +
             '<option value="" disabled' + (!appointment && !preselectedPetId ? ' selected' : '') + '>Выбери питомца</option>' +
             '<option value="none"' + (noCardAppointment ? ' selected' : '') + '>Новый питомец — создать карточку</option>' +
@@ -1507,6 +1527,52 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     const form = document.getElementById("appointment-edit-form");
     const dogSelect = form.elements.dogId;
+    const petSearchInput = document.getElementById("appointment-pet-search");
+    const petSearchButton = document.getElementById("appointment-pet-search-btn");
+    const knownPets = new Map(pets.map(function(pet){return [Number(pet.id), pet];}));
+    function optionForPet(pet, selectedId) {
+      const variant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0
+        ? " · " + esc(pet.breed_variant)
+        : "";
+      return '<option value="' + Number(pet.id) + '"' + (Number(pet.id) === Number(selectedId) ? " selected" : "") + '>' +
+        esc(pet.name) + (pet.breed ? " · " + esc(pet.breed) : "") + variant + '</option>';
+    }
+    async function searchAppointmentPets() {
+      const query = String(petSearchInput.value || "").trim();
+      const selectedValue = dogSelect.value;
+      petSearchButton.disabled = true;
+      petSearchButton.textContent = "Ищу…";
+      try {
+        const data = await api("/api/pets?q=" + encodeURIComponent(query));
+        const found = data.pets || [];
+        found.forEach(function(pet){knownPets.set(Number(pet.id), pet);});
+        const selectedId = Number(selectedValue || 0);
+        if (selectedId && selectedValue !== "none" && !found.some(function(pet){return Number(pet.id) === selectedId;})) {
+          const selectedPet = knownPets.get(selectedId);
+          if (selectedPet) found.unshift(selectedPet);
+        }
+        pets = found;
+        dogSelect.innerHTML =
+          '<option value="" disabled>Выбери питомца</option>' +
+          '<option value="none">Новый питомец — создать карточку</option>' +
+          pets.map(function(pet){return optionForPet(pet, selectedId);}).join("");
+        dogSelect.value = selectedValue;
+        if (dogSelect.value !== selectedValue) dogSelect.value = selectedId ? String(selectedId) : selectedValue;
+        if (selectedValue === "none") dogSelect.value = "none";
+      } catch(error) {
+        showError(error);
+      } finally {
+        petSearchButton.disabled = false;
+        petSearchButton.textContent = "Найти";
+      }
+    }
+    petSearchButton.addEventListener("click", searchAppointmentPets);
+    petSearchInput.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        searchAppointmentPets();
+      }
+    });
     const noCardFields = document.getElementById("appointment-no-card-fields");
     const noCardNameInput = form.elements.noCardName;
     const noCardBreedInput = form.elements.noCardBreed;
