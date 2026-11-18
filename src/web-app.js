@@ -380,6 +380,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let calendarSelectedDates = new Set();
   let lastDashboard = null;
   let objectUrls = [];
+  let photoObservers = [];
   let sessionToken = "";
   try { sessionToken = localStorage.getItem("pretty-dogs-session") || ""; } catch(e) {}
 
@@ -424,6 +425,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     return {};
   }
   function clearObjectUrls() {
+    photoObservers.forEach(function(observer) { observer.disconnect(); });
+    photoObservers = [];
     objectUrls.forEach(function(url) { URL.revokeObjectURL(url); });
     objectUrls = [];
   }
@@ -444,6 +447,22 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     } catch(error) {
       console.error("Could not load grooming photo:", error);
     }
+  }
+  function loadPrivatePhotoWhenVisible(image, photoId, photoType) {
+    if (!image || !photoId) return;
+    if (typeof IntersectionObserver === "undefined") {
+      loadPrivatePhoto(image, photoId, photoType);
+      return;
+    }
+    const target = image.parentElement || image;
+    const observer = new IntersectionObserver(function(entries) {
+      if (!entries.some(function(entry) { return entry.isIntersecting; })) return;
+      observer.disconnect();
+      photoObservers = photoObservers.filter(function(item) { return item !== observer; });
+      loadPrivatePhoto(image, photoId, photoType);
+    }, { rootMargin: "140px" });
+    photoObservers.push(observer);
+    observer.observe(target);
   }
   async function preparePhotoForStorage(file) {
     const maxStoredFileBytes = 1300000;
@@ -1906,6 +1925,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     async function runSearch() {
       petQuery = searchInput.value.trim();
+      clearObjectUrls();
       const host = document.getElementById("pet-list");
       const count = document.getElementById("pet-count");
       host.innerHTML = '<div class="loading">Ищу питомцев…</div>';
@@ -1927,10 +1947,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             '</div></article>';
         }).join("") : '<div class="empty" style="grid-column:1/-1">Питомцев не найдено. Попробуй изменить запрос или добавь новую карточку.</div>';
 
-        await Promise.all(pets.filter(function(pet){return !!pet.cover_photo_id;}).map(function(pet) {
+        pets.filter(function(pet){return !!pet.cover_photo_id;}).forEach(function(pet) {
           const image = host.querySelector('[data-cover-photo-id="' + Number(pet.cover_photo_id) + '"]');
-          return loadPrivatePhoto(image, pet.cover_photo_id, pet.cover_photo_type === "cover" ? "cover" : pet.cover_photo_type === "visit" ? "visit" : "grooming");
-        }));
+          loadPrivatePhotoWhenVisible(image, pet.cover_photo_id, pet.cover_photo_type === "cover" ? "cover" : pet.cover_photo_type === "visit" ? "visit" : "grooming");
+        });
       } catch(error) {
         showError(error);
       }
