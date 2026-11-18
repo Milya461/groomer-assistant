@@ -161,6 +161,10 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:9px 0;background:#fff}
 .history-photos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
 .history-photo{aspect-ratio:1;border-radius:8px}
+.history-filters{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:0 0 18px}
+.history-filters label{display:block;min-width:0}
+.history-filters label span{display:block;font-size:10px;color:var(--muted);margin:0 0 5px}
+.history-filters select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;background:#fff;color:#111;font:inherit;font-size:12px}
 .history-photo-section{margin-top:12px}
 .history-photo-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px;font-size:11px;color:var(--muted)}
 .history-photo-row .inlineaction{margin:0;padding:6px 9px}
@@ -258,6 +262,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   .photo-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .earning-overview{grid-template-columns:1fr}
   .history-card{padding:13px}
+  .history-filters{grid-template-columns:1fr 1fr;gap:7px}
   footer{margin-top:28px;font-size:8px}
 }
 @media(min-width:661px) and (max-width:820px){.app-main{padding-left:20px;padding-right:20px}.shell{grid-template-columns:185px minmax(0,1fr)}.logo-name{font-size:10px}.tab{gap:8px;padding:12px 9px}.tab-symbol{width:16px;flex-basis:16px}.pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -2354,199 +2359,225 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     currentScreen = "visits";
     setHead("Визиты", "");
     clearObjectUrls();
-    content.innerHTML = '<div class="loading">Загружаю историю…</div>';
 
+    const today = moscowISODate();
+    const currentYear = Number(today.slice(0,4));
+    const currentMonth = Number(today.slice(5,7));
+    const monthOptions = ['<option value="">Все месяцы</option>'];
+    for (let offset = 0; offset < 48; offset++) {
+      const date = new Date(Date.UTC(currentYear, currentMonth - 1 - offset, 1));
+      const value = date.getUTCFullYear() + "-" + String(date.getUTCMonth() + 1).padStart(2, "0");
+      const label = new Intl.DateTimeFormat("ru-RU", {month:"long",year:"numeric",timeZone:"UTC"}).format(date);
+      monthOptions.push('<option value="' + value + '"' + (visitsMonthFilter === value ? " selected" : "") + '>' +
+        label.charAt(0).toLocaleUpperCase("ru-RU") + label.slice(1) + '</option>');
+    }
+
+    content.innerHTML =
+      '<div class="searchbar"><input id="visit-search" placeholder="Найти питомца" value="' + esc(visitsSearchQuery) + '" autocomplete="off"><button type="button" id="visit-search-btn">Найти</button></div>' +
+      '<div class="history-filters">' +
+        '<label><span>Статус</span><select id="visit-status-filter">' +
+          '<option value="all"' + (visitsStatusFilter === "all" ? " selected" : "") + '>Все визиты</option>' +
+          '<option value="completed"' + (visitsStatusFilter === "completed" ? " selected" : "") + '>Завершённые</option>' +
+          '<option value="in_progress"' + (visitsStatusFilter === "in_progress" ? " selected" : "") + '>В работе</option>' +
+          '<option value="cancelled"' + (visitsStatusFilter === "cancelled" ? " selected" : "") + '>Отменённые</option>' +
+          '<option value="no_show"' + (visitsStatusFilter === "no_show" ? " selected" : "") + '>Неявки</option>' +
+        '</select></label>' +
+        '<label><span>Месяц</span><select id="visit-month-filter">' + monthOptions.join("") + '</select></label>' +
+      '</div>' +
+      '<div class="sectionhead" style="margin-top:0"><h2>История визитов</h2><span class="count" id="visits-count">Загрузка…</span></div>' +
+      '<div id="visit-history-list"><div class="loading">Загружаю визиты…</div></div>' +
+      '<div id="visits-more-slot"></div>';
+
+    const searchInput = document.getElementById("visit-search");
+    const searchButton = document.getElementById("visit-search-btn");
+    const statusSelect = document.getElementById("visit-status-filter");
+    const monthSelect = document.getElementById("visit-month-filter");
+    const listHost = document.getElementById("visit-history-list");
+    const countHost = document.getElementById("visits-count");
+    const moreSlot = document.getElementById("visits-more-slot");
     const pageSize = 50;
-    let loadedOffset = 0;
-    let currentTotal = 0;
+    let offset = 0;
+    let loading = false;
+    let total = 0;
 
     function visitCardHtml(item) {
       const date = dateText(item.appointment_date);
       const time = item.actual_start_time || item.appointment_time || "—";
       const duration = Number(item.actual_duration_minutes || 0);
       const earned = Number(item.earned || 0);
-      return '<article class="history-card">' +
-        '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
-        '<div class="history-time">' + esc(time) + '</div></div>' +
-        (["cancelled","no_show"].includes(item.status) ? "" : '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">✎ Изменить время начала</button>' +
-        '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
-        (item.status === "completed" ? '<button type="button" class="inlineaction" data-edit-visit-price="' + Number(item.id) + '">Изменить стоимость</button>' : '') +
-        '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Услуги ↓</button>' +
+      return '<article class="history-card" data-history-visit-id="' + Number(item.id) + '">' +
+        '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' +
+          esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) +
+          '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) +
+        '</div></div><div class="history-time">' + esc(time) + '</div></div>' +
+        (["cancelled","no_show"].includes(item.status) ? "" :
+          '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) +
+          '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") +
+          '" data-visit-status="' + esc(item.status) + '">✎ Изменить время начала</button>' +
+          '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
+        (item.status === "completed" ? '<button type="button" class="inlineaction" data-edit-visit-price="' + Number(item.id) + '">Изменить стоимость</button>' : "") +
+        '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Услуги и сумма ↓</button>' +
         '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
         visitPhotoSectionHtml(item) +
-        '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) + '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : '') + '</span></div>' +
-        (item.status === "in_progress" ? '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) + '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) + '">Завершить и внести услуги</button><div class="visit-action-panel"></div>' : '') +
+        '<div class="pet-foot"><span>' + (duration ? 'ДЛИТЕЛЬНОСТЬ · ' + esc(formatDuration(duration)) : 'ВИЗИТ № ' + Number(item.id)) +
+        '</span><span style="font-size:11px;font-weight:750;color:#111">' + (earned ? money(earned) : "") + '</span></div>' +
+        (item.status === "in_progress" ?
+          '<button type="button" class="inlineaction primary-action" data-finish-history-visit="' + Number(item.id) +
+          '" data-dog-id="' + Number(item.dog_id) + '" data-pet-name="' + esc(item.name) +
+          '">Завершить визит</button><div class="visit-action-panel"></div>' : "") +
         '<button type="button" class="inlineaction" data-open-pet="' + Number(item.dog_id) + '">Карточка питомца ↗</button>' +
       '</article>';
     }
 
-    async function fetchVisitPage(offset) {
-      const query = new URLSearchParams();
-      query.set("limit", String(pageSize));
-      query.set("offset", String(offset));
-      query.set("q", visitsSearchQuery);
-      query.set("status", visitsStatusFilter);
-      if (visitsMonthFilter) query.set("month", visitsMonthFilter);
-      return api("/api/visits?" + query.toString());
-    }
-
-    async function bindVisitPage(container, pageVisits) {
-      container.querySelectorAll("[data-edit-visit-price]").forEach(function(button) {
-        button.addEventListener("click", async function() {
-          const id = Number(button.dataset.editVisitPrice);
-          const item = pageVisits.find(function(visit){return Number(visit.id) === id;});
-          const currentTotal = String(item && item.procedures || "").split(/;\\s*|\\n+/).reduce(function(sum,entry) {
-            const match = entry.match(/^(.+?):\\s*(-?\\d+(?:[.,]\\d{1,2})?)/);
-            return sum + (match ? Number(match[2].replace(",", ".")) : 0);
-          },0);
-          const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(/\\.00$/,""));
-          if (answer === null) return;
-          const total = Number(String(answer).replace(",", "."));
-          if (!Number.isFinite(total) || total <= 0 || total > 100000) {
-            showError(new Error("Укажи сумму больше 0 и не больше 100 000 ₽."));
-            return;
-          }
-          button.disabled = true;
-          try {
-            await api("/api/appointments/" + id + "/price", {method:"PUT",body:JSON.stringify({total})});
-            await renderVisits();
-          } catch(error) {
-            showError(error);
-            button.disabled = false;
-          }
-        });
-      });
-
-      container.querySelectorAll("[data-toggle-history-detail]").forEach(function(button) {
-        button.addEventListener("click",function() {
-          const id = Number(button.dataset.toggleHistoryDetail);
-          const item = pageVisits.find(function(visit){ return Number(visit.id) === id; });
-          const panel = container.querySelector("#history-visit-detail-" + id);
-          if (!item || !panel) return;
-          const opening = panel.hidden;
-          if (opening) panel.innerHTML = visitDetailsHtml(item);
-          panel.hidden = !opening;
-          button.setAttribute("aria-expanded",String(opening));
-          button.textContent = opening ? "Скрыть ↑" : "Услуги ↓";
-        });
-      });
-
+    async function bindPage(items) {
       const photoJobs = [];
-      pageVisits.forEach(function(item) {
+      items.forEach(function(item) {
+        const article = listHost.querySelector('[data-history-visit-id="' + Number(item.id) + '"]');
+        if (!article) return;
+
+        bindStartTimeEditorButtons(article, function(){return renderVisits();});
+        bindVisitPhotoUpload(article, function(){return renderVisits();});
+
+        const priceButton = article.querySelector("[data-edit-visit-price]");
+        if (priceButton) {
+          priceButton.addEventListener("click", async function() {
+            const currentTotal = String(item.procedures || "").split(";").reduce(function(sum, entry) {
+              const match = entry.match(/:\\s*(-?\\d+(?:[.,]\\d{1,2})?)/);
+              return sum + (match ? Number(match[1].replace(",", ".")) : 0);
+            }, 0);
+            const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(/\\.00$/, ""));
+            if (answer === null) return;
+            const newTotal = Number(String(answer).replace(",", "."));
+            if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > 100000) {
+              showError(new Error("Укажи сумму больше 0 и не больше 100 000 ₽."));
+              return;
+            }
+            priceButton.disabled = true;
+            try {
+              await api("/api/appointments/" + Number(item.id) + "/price", {
+                method:"PUT",
+                body:JSON.stringify({total:newTotal})
+              });
+              await renderVisits();
+            } catch(error) {
+              showError(error);
+              priceButton.disabled = false;
+            }
+          });
+        }
+
+        const detailButton = article.querySelector("[data-toggle-history-detail]");
+        if (detailButton) {
+          detailButton.addEventListener("click", function() {
+            const panel = article.querySelector("#history-visit-detail-" + Number(item.id));
+            if (!panel) return;
+            const opening = panel.hidden;
+            if (opening) panel.innerHTML = visitDetailsHtml(item);
+            panel.hidden = !opening;
+            detailButton.setAttribute("aria-expanded", String(opening));
+            detailButton.textContent = opening ? "Скрыть подробности ↑" : "Услуги и сумма ↓";
+          });
+        }
+
+        const finishButton = article.querySelector("[data-finish-history-visit]");
+        if (finishButton) {
+          finishButton.addEventListener("click", function() {
+            const panel = article.querySelector(".visit-action-panel");
+            if (!panel) return;
+            openVisitFinishForm(
+              Number(item.id),
+              Number(item.dog_id),
+              item.name || "Питомец",
+              panel,
+              function(){return renderVisits();}
+            ).catch(showError);
+          });
+        }
+
+        const petButton = article.querySelector("[data-open-pet]");
+        if (petButton) {
+          petButton.addEventListener("click", function() {
+            renderPet(Number(item.dog_id)).catch(showError);
+          });
+        }
+
         (item.photos || []).forEach(function(photo) {
           photoJobs.push(loadPrivatePhoto(
-            container.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
+            article.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
             photo.id,
             "visit"
           ));
         });
       });
-      bindVisitPhotoUpload(container, function(){return renderVisits();});
-      container.querySelectorAll("[data-finish-history-visit]").forEach(function(button) {
-        button.addEventListener("click",function() {
-          const article = button.closest(".history-card");
-          const panel = article && article.querySelector(".visit-action-panel");
-          if (!panel) return;
-          openVisitFinishForm(
-            Number(button.dataset.finishHistoryVisit),
-            Number(button.dataset.dogId),
-            button.dataset.petName || "Питомец",
-            panel,
-            function(){return renderVisits();}
-          ).catch(showError);
-        });
-      });
-      container.querySelectorAll("[data-open-pet]").forEach(function(button) {
-        button.addEventListener("click",function() {
-          renderPet(Number(button.dataset.openPet)).catch(showError);
-        });
-      });
-      bindStartTimeEditorButtons(container, function(){return renderVisits();});
       await Promise.all(photoJobs);
     }
 
-    function updateLoadMore(hasMore) {
-      const oldButton = document.getElementById("visits-load-more");
-      if (!hasMore) {
-        if (oldButton) oldButton.remove();
-        return;
+    async function loadPage(reset) {
+      if (loading) return;
+      loading = true;
+      const moreButton = document.getElementById("visits-load-more");
+      if (moreButton) {
+        moreButton.disabled = true;
+        moreButton.textContent = "Загружаю…";
       }
-      if (oldButton) return;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "btn secondary full";
-      button.id = "visits-load-more";
-      button.textContent = "Загрузить ещё";
-      button.addEventListener("click", async function() {
-        button.disabled = true;
-        button.textContent = "Загружаю…";
-        try {
-          const page = await fetchVisitPage(loadedOffset);
-          const nextVisits = page.visits || [];
-          const wrapper = document.createElement("div");
-          wrapper.innerHTML = nextVisits.map(visitCardHtml).join("");
-          await bindVisitPage(wrapper, nextVisits);
-          const host = document.getElementById("visit-history-list");
-          if (host && wrapper.childElementCount) host.appendChild(wrapper);
-          loadedOffset = Number(page.offset || loadedOffset) + nextVisits.length;
-          if (!nextVisits.length || !page.hasMore) {
-            button.remove();
-          } else {
-            button.disabled = false;
-            button.textContent = "Загрузить ещё";
-          }
-        } catch(error) {
-          showError(error);
-          button.disabled = false;
-          button.textContent = "Повторить загрузку";
-        }
+      if (reset) {
+        offset = 0;
+        total = 0;
+        listHost.innerHTML = '<div class="loading">Загружаю визиты…</div>';
+      }
+      const params = new URLSearchParams({
+        limit:String(pageSize),
+        offset:String(offset),
+        q:visitsSearchQuery,
+        status:visitsStatusFilter,
+        month:visitsMonthFilter
       });
-      content.appendChild(button);
+      try {
+        const page = await api("/api/visits?" + params.toString());
+        const items = page.visits || [];
+        total = Number(page.total || 0);
+        countHost.textContent = total + " визитов";
+        if (reset) listHost.innerHTML = "";
+        if (items.length) {
+          listHost.insertAdjacentHTML("beforeend", items.map(visitCardHtml).join(""));
+          offset += items.length;
+          await bindPage(items);
+        }
+        if (!items.length && offset === 0) {
+          listHost.innerHTML = '<div class="empty">' +
+            (visitsSearchQuery ? "По этому запросу визитов не найдено." : "Визитов за выбранный период нет.") +
+          '</div>';
+        }
+        moreSlot.innerHTML = page.hasMore
+          ? '<button type="button" class="btn secondary full" id="visits-load-more">Загрузить ещё</button>'
+          : "";
+        const nextButton = document.getElementById("visits-load-more");
+        if (nextButton) nextButton.addEventListener("click", function(){loadPage(false).catch(showError);});
+      } catch(error) {
+        if (reset) listHost.innerHTML = "";
+        showError(error);
+        moreSlot.innerHTML = '<button type="button" class="btn secondary full" id="visits-load-more">Повторить загрузку</button>';
+        const retryButton = document.getElementById("visits-load-more");
+        if (retryButton) retryButton.addEventListener("click", function(){loadPage(offset === 0).catch(showError);});
+      } finally {
+        loading = false;
+      }
     }
 
-    const data = await fetchVisitPage(0);
-    const visits = data.visits || [];
-    currentTotal = Number(data.total || 0);
-    loadedOffset = visits.length;
-    content.innerHTML =
-      '<div class="searchbar"><input id="visit-search" placeholder="Найти по имени питомца" value="' + esc(visitsSearchQuery) + '" autocomplete="off"><button type="button" id="visit-search-btn">Найти</button></div>' +
-      '<div class="visit-filters">' +
-        '<label><span>Статус</span><select id="visit-status-filter">' +
-          '<option value="all">Все</option>' +
-          '<option value="completed">Завершённые</option>' +
-          '<option value="in_progress">В работе</option>' +
-          '<option value="cancelled">Отменённые</option>' +
-          '<option value="no_show">Неявки</option>' +
-        '</select></label>' +
-        '<label><span>Месяц</span><input type="month" id="visit-month-filter" value="' + esc(visitsMonthFilter) + '"></label>' +
-      '</div>' +
-      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2></div><span class="count" id="visits-count">' + currentTotal + ' визитов</span></div>' +
-      (visits.length ? '<div id="visit-history-list">' + visits.map(visitCardHtml).join("") + '</div>' :
-        '<div class="empty" id="visit-history-empty">' + (visitsSearchQuery || visitsStatusFilter !== "all" || visitsMonthFilter ? 'По выбранным фильтрам визитов нет.' : 'История пока пустая.') + '</div>');
-
-    const searchInput = document.getElementById("visit-search");
-    const searchButton = document.getElementById("visit-search-btn");
-    const statusSelect = document.getElementById("visit-status-filter");
-    const monthInput = document.getElementById("visit-month-filter");
-    statusSelect.value = visitsStatusFilter;
-    async function applyVisitFilters() {
+    async function applyFilters() {
       visitsSearchQuery = searchInput.value.trim();
       visitsStatusFilter = statusSelect.value;
-      visitsMonthFilter = monthInput.value;
-      await renderVisits();
+      visitsMonthFilter = monthSelect.value;
+      await loadPage(true);
     }
-    searchButton.addEventListener("click",function(){applyVisitFilters().catch(showError);});
-    searchInput.addEventListener("keydown",function(event) {
-      if (event.key === "Enter") applyVisitFilters().catch(showError);
+    searchButton.addEventListener("click", function(){applyFilters().catch(showError);});
+    searchInput.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") applyFilters().catch(showError);
     });
-    statusSelect.addEventListener("change",function(){applyVisitFilters().catch(showError);});
-    monthInput.addEventListener("change",function(){applyVisitFilters().catch(showError);});
+    statusSelect.addEventListener("change", function(){applyFilters().catch(showError);});
+    monthSelect.addEventListener("change", function(){applyFilters().catch(showError);});
 
-    if (visits.length) {
-      const host = document.getElementById("visit-history-list");
-      await bindVisitPage(host, visits);
-    }
-    updateLoadMore(!!data.hasMore);
+    await loadPage(true);
   }
 
   async function renderEarnings() {
