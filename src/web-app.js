@@ -63,10 +63,6 @@ main{min-height:300px;padding-top:25px}
 .service-template-box summary{cursor:pointer;font-size:12px;font-weight:800;list-style-position:inside}
 .service-template-box[open] summary{margin-bottom:10px}
 .service-template-box .service-choice-controls{margin-top:8px}
-.visit-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin:0 0 15px}
-.visit-filters label{display:block;min-width:0}
-.visit-filters label span{display:block;margin:0 0 5px;font-size:10px;color:var(--muted)}
-.visit-filters select,.visit-filters input{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px 11px;background:#fff;color:#111;font:inherit;font-size:12px}
 .hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:#fff;margin-bottom:14px}
 .hero.dark{background:#111;color:#fff;border-color:#111}
 .hero .eyebrow{color:#888}
