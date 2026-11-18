@@ -881,7 +881,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             (service.minutes ? '<div class="service-choice-note">' + Number(service.minutes) + ' мин</div>' : '') +
             '<div class="service-choice-controls ' + (sizeSelector ? '' : 'single') + '">' +
               sizeSelector +
-              '<label><span>Цена, ₽ (можно изменить)</span><input type="number" min="0" max="100000" step="0.01" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
+              '<label><span>Цена, ₽</span><input type="number" min="0.01" max="100000" step="0.01" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -890,9 +890,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<section class="service-picker">' +
           '<div class="eyebrow">ЗАВЕРШЕНИЕ ВИЗИТА</div>' +
           '<h2 style="margin:8px 0 5px">' + esc(petName) + '</h2>' +
-          '<div class="smallmuted">Выбери одну основную услугу и дополнительные, если они были. Цены автоматически взяты из прайса; каждую цену и итоговую сумму можно исправить.</div>' +
-          '<div class="service-template-box" style="padding:12px;border:1px solid var(--line);border-radius:11px;margin:14px 0;background:#fafafa">' +
-            '<div class="service-picker-heading" style="margin-top:0">Мои наборы услуг</div>' +
+          '<div class="smallmuted">Выбери основную услугу и дополнительные. Цены можно изменить.</div>' +
+          '<details class="service-template-box">' +
+            '<summary>Мои наборы услуг</summary>' +
             '<div class="service-choice-controls" style="grid-template-columns:minmax(0,1fr) auto auto">' +
               '<label><span>Выбрать набор</span><select data-service-template-select>' +
                 '<option value="">' + (serviceTemplates.length ? 'Выбери сохранённый набор' : 'Пока нет наборов') + '</option>' +
@@ -905,7 +905,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
               '<label><span>Сохранить выбранные услуги как набор</span><input type="text" maxlength="60" data-new-service-template-name placeholder="Например, Гигиена + когти"></label>' +
               '<button type="button" class="inlineaction" data-save-service-template>Сохранить</button>' +
             '</div>' +
-          '</div>' +
+          '</details>' +
           '<div class="service-picker-heading">Основная услуга</div>' +
           '<div class="service-choice-list">' + baseServices.map(function(service){return renderChoice(service,true);}).join("") + '</div>' +
           '<div class="service-picker-heading">Дополнительные услуги</div>' +
@@ -993,8 +993,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             errorBox.style.display = "block";
             return;
           }
-          if (currentServices.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
-            errorBox.textContent = "Проверь цену каждой выбранной услуги.";
+          if (currentServices.some(function(service){return !Number.isFinite(service.amount) || service.amount <= 0 || service.amount > 100000;})) {
+            errorBox.textContent = "Укажи цену больше нуля для каждой выбранной услуги.";
             errorBox.style.display = "block";
             return;
           }
@@ -1146,7 +1146,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           return;
         }
         if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
-          errorBox.textContent = "Проверь цену каждой выбранной услуги.";
+          errorBox.textContent = "Укажи цену больше нуля для каждой выбранной услуги.";
           errorBox.style.display = "block";
           return;
         }
@@ -1169,27 +1169,31 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
   async function renderToday() {
     currentScreen = "today";
-    setHead("Главное","Очередь, визиты и заработок за день");
+    setHead("Главное","Очередь и заработок за сегодня");
     content.innerHTML = '<div class="loading">Загружаю данные…</div>';
     const data = await api("/api/dashboard");
     const counts = data.counts || {};
     const rows = data.queue || [];
     content.innerHTML =
-      '<div class="dashboard-grid">' +
-        '<section class="hero dark"><div class="eyebrow">PRETTY DOGS · WORKSPACE</div><div class="hero-heading">День начинается с заботы.</div><div class="hero-desc">Очередь и заработок за сегодня.</div><div class="hero-meta"><span class="chip">' + esc(data.dateDisplay) + '</span></div></section>' +
-        '<section class="hero"><div class="eyebrow">Заработок сегодня</div><div class="money">' + money(data.earnedToday) + '</div><div class="smallmuted">' + Number(data.earningsCount || 0) + ' услуг учтено</div><div class="hero-meta"><span class="chip">Прогресс рабочего дня</span></div></section>' +
-      '</div>' +
+      '<section class="hero dashboard-earnings"><div class="eyebrow">Заработок сегодня · ' + esc(data.dateDisplay) + '</div><div class="money">' + money(data.earnedToday) + '</div><div class="smallmuted">' + Number(data.earningsCount || 0) + ' услуг</div></section>' +
       '<div class="metricgrid">' +
         '<div class="metric"><div class="value">' + Number(counts.total || 0) + '</div><div class="label">Записей сегодня</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
       '<div class="sectionhead"><div><h2>Очередь на сегодня</h2></div></div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">' +
-        '<button type="button" class="btn" id="add-appointment" style="flex:1 1 145px">＋ Добавить запись</button>' +
-        '<button type="button" class="btn secondary" id="add-unscheduled-service" style="flex:1 1 145px">＋ Услуга без записи</button>' +
-        '<button type="button" class="btn secondary" id="download-backup" style="flex:1 1 145px">↓ Резервная копия</button>' +
+      '<div class="dashboard-actions">' +
+        '<button type="button" class="btn" id="add-appointment">＋ Добавить запись</button>' +
+        '<button type="button" class="btn secondary" id="add-unscheduled-service">＋ Услуга без записи</button>' +
       '</div>' +
+      '<details class="backup-tools"><summary>Резервная копия и восстановление</summary>' +
+        '<div class="backup-tools-actions">' +
+          '<button type="button" class="inlineaction" id="download-backup">↓ Скачать копию</button>' +
+          '<label class="inlineaction filelabel">Выбрать файл для восстановления<input id="restore-backup-file" type="file" accept="application/json,.json"></label>' +
+        '</div>' +
+        '<div class="smallmuted">Восстановление объединяет данные: существующие записи с теми же ID обновятся, остальные сохранятся. Ничего не удаляется.</div>' +
+        '<div id="restore-backup-preview"></div>' +
+      '</details>' +
       (rows.length ? '<div class="list">' + rows.map(rowForVisit).join("") + '</div>' : '<div class="empty">На сегодня записей нет</div>') +
       '<div id="visit-action-panel"></div><div id="unscheduled-service-slot"></div><div id="appointment-editor-slot"></div>';
 
@@ -1212,24 +1216,97 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       openAppointmentEditor(null, moscowISODate()).catch(showError);
     });
 
+    function downloadBackupFile(backup, suffix) {
+      const blob = new Blob([JSON.stringify(backup, null, 2)], {type:"application/json;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "pretty-dogs-backup-" + moscowISODate() + (suffix || "") + ".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function(){URL.revokeObjectURL(url);}, 60000);
+    }
+
     document.getElementById("download-backup").addEventListener("click",async function() {
       const button = document.getElementById("download-backup");
       button.disabled = true;
       button.textContent = "Готовлю копию…";
       try {
         const backup = await api("/api/backup");
-        const blob = new Blob([JSON.stringify(backup, null, 2)], {type:"application/json;charset=utf-8"});
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "pretty-dogs-backup-" + moscowISODate() + ".json";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(function(){URL.revokeObjectURL(url);}, 60000);
-        if (Number(backup.photoFilesUnavailable || 0) > 0) window.alert("Копия сохранена. " + backup.photoFilesUnavailable + " старых фотографий не получилось вложить — их записи остались в архиве.");
+        downloadBackupFile(backup, "");
+        if (Number(backup.photoFilesUnavailable || 0) > 0) window.alert("Копия скачана. " + backup.photoFilesUnavailable + " старых фотографий не удалось вложить — их записи остались в архиве.");
       } catch(error) { showError(error); }
-      finally { button.disabled = false; button.textContent = "↓ Резервная копия"; }
+      finally { button.disabled = false; button.textContent = "↓ Скачать копию"; }
+    });
+
+    const restoreInput = document.getElementById("restore-backup-file");
+    const restorePreview = document.getElementById("restore-backup-preview");
+    let pendingRestoreBackup = null;
+    restoreInput.addEventListener("change", async function() {
+      pendingRestoreBackup = null;
+      restorePreview.innerHTML = "";
+      const file = restoreInput.files && restoreInput.files[0];
+      if (!file) return;
+      if (file.size > 45 * 1024 * 1024) {
+        showError(new Error("Файл больше 45 МБ. Выбери меньшую резервную копию."));
+        restoreInput.value = "";
+        return;
+      }
+      try {
+        const backup = JSON.parse(await file.text());
+        if (backup.backupFormat !== "pretty-dogs-json-v1" || !backup.contents) {
+          throw new Error("Это не резервная копия Pretty Dogs.");
+        }
+        const c = backup.contents;
+        const count = key => Array.isArray(c[key]) ? c[key].length : 0;
+        pendingRestoreBackup = backup;
+        restorePreview.innerHTML =
+          '<div class="backup-preview">' +
+            '<strong>Копия от ' + esc(backup.createdAt || "даты нет") + '</strong>' +
+            '<div class="smallmuted">Питомцев: ' + count("pets") +
+            ' · записей: ' + count("appointments") +
+            ' · начислений: ' + count("earnings") +
+            ' · фото в файле: ' + count("photoFiles") + '</div>' +
+            '<button type="button" class="inlineaction" id="restore-backup-confirm">Восстановить данные</button>' +
+          '</div>';
+        document.getElementById("restore-backup-confirm").addEventListener("click",async function() {
+          if (!pendingRestoreBackup) return;
+          const restoreButton = document.getElementById("restore-backup-confirm");
+          const confirmed = window.confirm(
+            "Перед восстановлением скачается страховочная копия текущих данных. Затем данные из выбранного файла будут добавлены или обновлены. Отсутствующие в файле записи не удаляются. Продолжить?"
+          );
+          if (!confirmed) return;
+          restoreButton.disabled = true;
+          restoreButton.textContent = "Создаю страховочную копию…";
+          try {
+            const safetyBackup = await api("/api/backup");
+            downloadBackupFile(safetyBackup, "-before-restore");
+            restoreButton.textContent = "Восстанавливаю…";
+            const result = await api("/api/restore", {
+              method: "POST",
+              body: JSON.stringify(pendingRestoreBackup)
+            });
+            pendingRestoreBackup = null;
+            window.alert(
+              result.message +
+              (Number(result.skippedPhotoRows || 0) ? "\nФотографий без файла пропущено: " + Number(result.skippedPhotoRows) : "") +
+              "\nСтраховочная копия скачана."
+            );
+            restorePreview.innerHTML = "";
+            restoreInput.value = "";
+            await renderToday();
+          } catch(error) {
+            showError(error);
+            restoreButton.disabled = false;
+            restoreButton.textContent = "Повторить восстановление";
+          }
+        });
+      } catch(error) {
+        pendingRestoreBackup = null;
+        restorePreview.innerHTML = '<div class="error">' + esc(error.message || "Не удалось прочитать копию.") + '</div>';
+        restoreInput.value = "";
+      }
     });
     document.getElementById("add-unscheduled-service").addEventListener("click",function() {
       openUnscheduledServiceForm().catch(showError);
@@ -1921,7 +1998,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     clearObjectUrls();
     content.innerHTML =
       '<div class="searchbar"><input id="pet-search" placeholder="Найти питомца по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
-      '<div class="sectionhead" style="margin-top:4px"><div><h2>Коллекция питомцев</h2><div class="count" id="pet-count" style="margin-top:5px">Загрузка карточек</div></div><button class="btn" type="button" id="add-pet">＋ Добавить</button></div>' +
+      '<div class="sectionhead" style="margin-top:4px"><span class="count" id="pet-count">Загрузка карточек</span><button class="btn" type="button" id="add-pet">＋ Добавить</button></div>' +
       '<div id="pet-editor-slot"></div>' +
       '<div id="pet-list" class="pet-grid"><div class="loading">Загружаю карточки…</div></div>';
 
@@ -2016,20 +2093,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
   }
 
-  function isSpitzBreed(pet) {
-    if (!pet || pet.species !== "dog") return false;
-    const breed = String(pet.breed || "")
-      .toLowerCase()
-      .replace(/ё/g, "е")
-      .normalize("NFD")
-      .replace(/[\\u0300-\\u036f]/g, "")
-      .replace(/[^a-zа-я0-9]+/g, " ")
-      .trim();
-    return ["шпиц", "spitz", "pomeranian"].some(function(name) {
-      return breed.indexOf(name) !== -1;
-    });
-  }
-
   async function renderPet(id) {
     currentScreen = "pet-detail";
     setHead("Карточка","Данные питомца");
@@ -2074,7 +2137,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
-      '<div class="profile-hero"><div><div class="eyebrow">КАРТОЧКА ПИТОМЦА · № ' + Number(pet.id) + '</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
+      '<div class="profile-hero"><div><div class="eyebrow">ПИТОМЕЦ</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
       '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Возраст",pet.age) +
@@ -2086,10 +2149,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       cardSection +
       photoSection +
       '<section class="detailsection"><h3>История визитов</h3><div id="pet-visit-history-slot"><div class="smallmuted">Загружаю историю…</div></div></section>' +
-      '<button class="btn secondary full" id="back-pets-bottom">Вернуться к питомцам</button>';
+      '';
 
     document.getElementById("back-pets").addEventListener("click",function(){renderPets().catch(showError);});
-    document.getElementById("back-pets-bottom").addEventListener("click",function(){renderPets().catch(showError);});
     document.getElementById("repeat-appointment").addEventListener("click",function() {
       openAppointmentEditor(null, moscowISODate(), null, Number(id)).catch(showError);
     });
