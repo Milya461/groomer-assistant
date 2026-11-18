@@ -373,16 +373,16 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   let currentScreen = "today";
   let petQuery = "";
   let visitsSearchQuery = "";
-  let visitsLimit = 50;
+  let visitsStatusFilter = "all";
+  let visitsMonthFilter = "";
   let earningsRange = "month";
-  let earningsYear = new Date().getFullYear();
-  let earningsMonth = new Date().getMonth() + 1;
+  let earningsYear = Number(moscowISODate().slice(0,4));
+  let earningsMonth = Number(moscowISODate().slice(5,7));
   let serviceTimeQuery = "";
   let calendarMonth = "";
   let calendarSelectedDate = "";
   let calendarMultiSelectMode = false;
   let calendarSelectedDates = new Set();
-  let lastDashboard = null;
   let objectUrls = [];
   let photoObservers = [];
   let sessionToken = "";
@@ -910,7 +910,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="service-choice-list">' + baseServices.map(function(service){return renderChoice(service,true);}).join("") + '</div>' +
           '<div class="service-picker-heading">Дополнительные услуги</div>' +
           '<div class="service-choice-list">' + addOns.map(function(service){return renderChoice(service,false);}).join("") + '</div>' +
-          '<label class="field" style="display:block;margin:14px 0"><span>ФАКТИЧЕСКОЕ ВРЕМЯ ЗАВЕРШЕНИЯ</span><input type="time" data-finish-end-time value="' + new Date().toTimeString().slice(0,5) + '" required></label>' +
+          '<label class="field" style="display:block;margin:14px 0"><span>ФАКТИЧЕСКОЕ ВРЕМЯ ЗАВЕРШЕНИЯ</span><input type="time" data-finish-end-time value="' + new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Moscow",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date()) + '" required></label>' +
           '<div class="service-total-box">' +
             '<div><div class="service-total-label">Итоговая сумма визита, ₽</div><div class="service-total-help">Сначала сумма складывается из выбранного. Её можно скорректировать вручную до подтверждения.</div></div>' +
             '<input type="number" min="0.01" max="100000" step="0.01" value="0" data-finish-total>' +
@@ -1172,7 +1172,6 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     setHead("Главное","Очередь, визиты и заработок за день");
     content.innerHTML = '<div class="loading">Загружаю данные…</div>';
     const data = await api("/api/dashboard");
-    lastDashboard = data;
     const counts = data.counts || {};
     const rows = data.queue || [];
     content.innerHTML =
@@ -2397,9 +2396,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const data = await api("/api/earnings?range=" + encodeURIComponent(earningsRange) +
       "&year=" + encodeURIComponent(earningsYear) + "&month=" + encodeURIComponent(earningsMonth));
     const entries = data.entries || [];
-    const currentDate = new Date();
-    const isCurrentEarningsMonth = earningsYear === currentDate.getFullYear() &&
-      earningsMonth === currentDate.getMonth() + 1;
+    const moscowToday = moscowISODate();
+    const currentYear = Number(moscowToday.slice(0,4));
+    const currentMonth = Number(moscowToday.slice(5,7));
+    const isCurrentEarningsMonth = earningsYear === currentYear &&
+      earningsMonth === currentMonth;
     const showYearBreakdown = earningsRange === "year";
     const showMonthEntries = !showYearBreakdown && isCurrentEarningsMonth;
     const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
@@ -2410,7 +2411,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       (data.months || []).forEach(function(item) {
         monthTotals[Number(item.month)] = Number(item.totalEarned || 0);
       });
-      const monthsToShow = earningsYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12;
+      const monthsToShow = earningsYear === currentYear ? currentMonth : 12;
       yearBreakdownHtml =
         '<div class="sectionhead"><h2>По месяцам</h2></div>' +
         '<div>' + Array.from({length:monthsToShow},function(_,index) {
@@ -2425,7 +2426,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.innerHTML =
       '<div class="periods" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
         '<label class="field" style="flex:1;min-width:120px"><span>Год</span><select id="earnings-year">' +
-          Array.from({length: Math.max(1, currentDate.getFullYear() - 2026 + 1)}, function(_,i){ return currentDate.getFullYear() - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
+          Array.from({length: Math.max(1, currentYear - 2026 + 1)}, function(_,i){ return currentYear - i; }).map(function(y){ return '<option value="' + y + '"' + (y===earningsYear?' selected':'') + '>' + y + '</option>'; }).join("") +
         '</select></label>' +
         '<label class="field" style="flex:1;min-width:140px"><span>Месяц</span><select id="earnings-month">' +
           monthNames.map(function(name,i){ return '<option value="' + (i+1) + '"' + (i+1===earningsMonth?' selected':'') + '>' + name + '</option>'; }).join("") +
@@ -2460,7 +2461,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const monthSelect = content.querySelector("#earnings-month");
     yearSelect.addEventListener("change", function(){
       earningsYear = Number(yearSelect.value);
-      if (earningsYear === currentDate.getFullYear() && earningsMonth > currentDate.getMonth()+1) earningsMonth = currentDate.getMonth()+1;
+      if (earningsYear === currentYear && earningsMonth > currentMonth) earningsMonth = currentMonth;
       if (earningsRange === "first-half" || earningsRange === "second-half") earningsRange = "month";
       renderEarnings().catch(showError);
     });
