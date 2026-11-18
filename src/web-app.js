@@ -883,6 +883,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<div class="service-choice-list">' + baseServices.map(function(service){return renderChoice(service,true);}).join("") + '</div>' +
           '<div class="service-picker-heading">Дополнительные услуги</div>' +
           '<div class="service-choice-list">' + addOns.map(function(service){return renderChoice(service,false);}).join("") + '</div>' +
+          '<label class="field" style="display:block;margin:14px 0"><span>ФАКТИЧЕСКОЕ ВРЕМЯ ЗАВЕРШЕНИЯ</span><input type="time" data-finish-end-time value="' + new Date().toTimeString().slice(0,5) + '" required></label>' +
           '<div class="service-total-box">' +
             '<div><div class="service-total-label">Итоговая сумма визита, ₽</div><div class="service-total-help">Сначала сумма складывается из выбранного. Её можно скорректировать вручную до подтверждения.</div></div>' +
             '<input type="number" min="0.01" max="100000" step="0.01" value="0" data-finish-total>' +
@@ -984,7 +985,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
                 selectedServices:currentServices.map(function(service) {
                   return {id:service.id,amount:service.amount,size:service.size};
                 }),
-                finalTotal:currentTotal
+                finalTotal:currentTotal,
+                actualEndTime:panel.querySelector("[data-finish-end-time]").value
               })
             });
             panel.innerHTML =
