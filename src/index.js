@@ -4864,11 +4864,18 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   const roundedTotal = Math.round(finalTotal * 100) / 100;
   const selectedTotal = Math.round(services.reduce((sum, service) => sum + service.amount, 0) * 100) / 100;
   const correction = Math.round((roundedTotal - selectedTotal) * 100) / 100;
-  const endTime = localTime();
+  const requestedEndTime = String(body?.actualEndTime || "").trim();
+  const endTime = requestedEndTime || localTime();
+  if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(endTime)) {
+    return { error: "Укажи корректное фактическое время окончания в формате ЧЧ:ММ.", status: 400 };
+  }
   const startTime = appointment.actual_start_time || appointment.appointment_time || endTime;
   const startMs = localDateTimeMs(appointment.appointment_date, startTime);
   const endMs = localDateTimeMs(appointment.appointment_date, endTime);
-  const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return { error: "Время окончания не может быть раньше времени начала визита.", status: 400 };
+  }
+  const durationMinutes = Math.round((endMs - startMs) / 60000);
 
   const entries = services.map(service => ({
     description: service.label,
@@ -4925,6 +4932,7 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   return {
     appointmentId,
     actualDurationMinutes: Number(updated.actual_duration_minutes || 0),
+    actualEndTime: endTime,
     finalTotal: roundedTotal,
     earned
   };
