@@ -95,16 +95,15 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .searchbar input,.field input,.field textarea,.field select,.range{width:100%;border:1px solid var(--line);background:#fff;color:#111;border-radius:10px;padding:12px 13px;outline:none;font-size:13px}
 .searchbar input:focus,.field input:focus,.field textarea:focus,.field select:focus{border-color:#777}
 .searchbar button{border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:0 17px;font-size:12px;font-weight:700}
-.pet-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
-.pet-card{border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;min-width:0;background:#fff;transition:transform .16s,border-color .16s}
-.pet-card:hover{border-color:#bababa;transform:translateY(-2px)}
-.pet-cover{aspect-ratio:1.17;background:#f3f3f3;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.pet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.pet-card{display:flex;align-items:center;gap:11px;padding:10px;border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;min-width:0;background:#fff;transition:transform .16s,border-color .16s}
+.pet-card:hover{border-color:#bababa;transform:translateY(-1px)}
+.pet-cover{width:58px;height:58px;flex:0 0 58px;aspect-ratio:1;background:#f3f3f3;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;border-radius:10px}
 .pet-cover img{width:100%;height:100%;object-fit:cover;display:block}
-.pet-cover-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:31px;font-weight:800;letter-spacing:-.09em;color:#b6b6b6}
-.pet-cover-label{position:absolute;bottom:9px;left:9px;background:#fff;color:#111;border-radius:6px;padding:5px 7px;font-size:9px;font-weight:750}
-.pet-card-body{padding:13px}
+.pet-cover-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:21px;font-weight:800;letter-spacing:-.09em;color:#b6b6b6}
+.pet-card-body{padding:0;min-width:0;flex:1}
 .petname{font-size:14px;font-weight:760;letter-spacing:-.025em;overflow-wrap:anywhere}
-.petbreed{font-size:10px;line-height:1.45;color:var(--muted);margin-top:5px;min-height:15px}
+.petbreed{font-size:11px;line-height:1.4;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
 .pet-foot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:13px;padding-top:10px;border-top:1px solid #eee;color:#999;font-size:9px}
 .arrow{font-size:17px;color:#777}
 .back{border:0;padding:0;margin:0 0 22px;background:transparent;color:#666;font-size:12px}
@@ -217,10 +216,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
   .hero-heading{font-size:21px}
   .money{font-size:34px}
   .dashboard-grid{gap:0}
-  .pet-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-  .pet-card{border-radius:12px}
-  .pet-cover{aspect-ratio:.98}
-  .pet-card-body{padding:10px}
+  .pet-grid{grid-template-columns:1fr;gap:8px}
+  .pet-card{border-radius:12px;padding:8px;gap:9px}
+  .pet-cover{width:48px;height:48px;flex-basis:48px;aspect-ratio:1}
+  .pet-card-body{padding:0}
   .petname{font-size:13px}
   .petbreed{font-size:10px}
   .profile-hero{padding:17px;gap:12px}
@@ -1917,15 +1916,15 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         host.innerHTML = pets.length ? pets.map(function(pet) {
           const shownBreedVariant = pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : "";
           const breedDescription = [pet.breed, shownBreedVariant].filter(Boolean).join(" · ");
-          const description = [pet.species === "cat" ? "Кошка" : "Собака", breedDescription].filter(Boolean).join(" · ");
           const initials = String(pet.name || "?").trim().split(/\s+/).slice(0,2).map(function(part){return part.charAt(0);}).join("").toUpperCase();
           const cover = pet.cover_photo_id
             ? '<div class="pet-cover-placeholder" data-photo-fallback>' + esc(initials) + '</div><img alt="Фото питомца" loading="lazy" style="display:none" data-cover-photo-id="' + Number(pet.cover_photo_id) + '">'
             : '<div class="pet-cover-placeholder">' + esc(initials) + '</div>';
           return '<article class="pet-card" role="button" tabindex="0" data-pet-id="' + Number(pet.id) + '">' +
-            '<div class="pet-cover">' + cover + '<div class="pet-cover-label">' + (pet.species === "cat" ? "CAT" : "DOG") + '</div></div>' +
-            '<div class="pet-card-body"><div class="petname">' + esc(pet.name) + '</div><div class="petbreed">' + esc(description) + '</div>' +
-            '<div class="pet-foot"><span>КАРТОЧКА № ' + Number(pet.id) + '</span><span class="arrow">↗</span></div></div></article>';
+            '<div class="pet-cover">' + cover + '</div>' +
+            '<div class="pet-card-body"><div class="petname">' + esc(pet.name) + '</div>' +
+            (breedDescription ? '<div class="petbreed">' + esc(breedDescription) + '</div>' : '') +
+            '</div></article>';
         }).join("") : '<div class="empty" style="grid-column:1/-1">Питомцев не найдено. Попробуй изменить запрос или добавь новую карточку.</div>';
 
         await Promise.all(pets.filter(function(pet){return !!pet.cover_photo_id;}).map(function(pet) {
