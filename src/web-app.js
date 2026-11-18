@@ -165,7 +165,12 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-filters label{display:block;min-width:0}
 .history-filters label span{display:block;font-size:10px;color:var(--muted);margin:0 0 5px}
 .history-filters select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px;background:#fff;color:#111;font:inherit;font-size:12px}
-.history-photo-section{margin-top:12px}
+.history-photo-details{margin-top:10px;padding-top:8px;border-top:1px solid #eee}
+.history-photo-details>summary{cursor:pointer;font-size:11px;color:var(--muted);font-weight:700;list-style:none}
+.history-photo-details>summary::-webkit-details-marker{display:none}
+.history-photo-details>summary:after{content:"＋";float:right}
+.history-photo-details[open]>summary:after{content:"−"}
+.history-photo-section{margin-top:10px}
 .history-photo-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px;font-size:11px;color:var(--muted)}
 .history-photo-row .inlineaction{margin:0;padding:6px 9px}
 .history-photo-section .history-photos{margin:6px 0 10px}
@@ -670,6 +675,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const photos = item.photos || [];
     const before = photos.filter(function(photo){return photo.photo_type === "before";});
     const after = photos.filter(function(photo){return photo.photo_type === "after";});
+    const canUploadBefore = !["cancelled","no_show"].includes(item.status);
+    const canUploadAfter = item.status === "completed";
+    if (!photos.length && !canUploadBefore && !canUploadAfter) return "";
     function tiles(items, label) {
       return items.length
         ? '<div class="history-photos">' + items.map(function(photo) {
@@ -677,16 +685,16 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           }).join("") + '</div>'
         : '';
     }
-    const canUploadBefore = !["cancelled","no_show"].includes(item.status);
-    const canUploadAfter = item.status === "completed";
-    return '<div class="history-photo-section">' +
-      '<div class="history-photo-row"><span>Фото до</span>' +
-        (canUploadBefore ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
-      '</div>' + tiles(before,"до стрижки") +
-      '<div class="history-photo-row"><span>Фото после</span>' +
-        (canUploadAfter ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="after" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
-      '</div>' + tiles(after,"после стрижки") +
-    '</div>';
+    const totalPhotos = before.length + after.length;
+    return '<details class="history-photo-details"><summary>Фото' + (totalPhotos ? ' · ' + totalPhotos : '') + '</summary>' +
+      '<div class="history-photo-section">' +
+        '<div class="history-photo-row"><span>До</span>' +
+          (canUploadBefore ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
+        '</div>' + tiles(before,"до стрижки") +
+        '<div class="history-photo-row"><span>После</span>' +
+          (canUploadAfter ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="after" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
+        '</div>' + tiles(after,"после стрижки") +
+      '</div></details>';
   }
   function bindVisitPhotoUpload(container, afterSave) {
     container.querySelectorAll("[data-visit-photo-upload]").forEach(function(input) {
@@ -885,6 +893,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (service.priceRange && Number(service.priceRange.max) >= Number(service.priceRange.min)) {
           return money(service.priceRange.min) + "–" + money(service.priceRange.max);
         }
+        if (service.editable && Number(service.price || 0) <= 0) return "Цена вручную";
         return money(service.price);
       }
       function renderChoice(service, isBase) {
@@ -900,9 +909,10 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
               }).join("") +
             '</select></label>'
           : '';
-        const inputValue = service.sizeChoices
+        const rawInputValue = service.sizeChoices
           ? Number((sizeChoices.find(function(choice){return choice.value === service.defaultSize;}) || sizeChoices[0]).price)
           : Number(service.price || 0);
+        const inputValue = service.editable && rawInputValue <= 0 ? "" : rawInputValue;
         return '<div class="service-choice" data-finish-service-card="' + esc(id) + '">' +
           choiceInput +
           '<div class="service-choice-body">' +
@@ -911,7 +921,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             (service.minutes ? '<div class="service-choice-note">' + Number(service.minutes) + ' мин</div>' : '') +
             '<div class="service-choice-controls ' + (sizeSelector ? '' : 'single') + '">' +
               sizeSelector +
-              '<label><span>Цена, ₽</span><input type="number" min="0.01" max="100000" step="0.01" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
+              '<label><span>Цена, ₽</span><input type="number" min="0.01" max="100000" step="0.01" placeholder="' + (inputValue === "" ? "Укажи цену" : "") + '" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1175,7 +1185,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           errorBox.style.display = "block";
           return;
         }
-        if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
+        if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount <= 0 || service.amount > 100000;})) {
           errorBox.textContent = "Укажи цену больше нуля для каждой выбранной услуги.";
           errorBox.style.display = "block";
           return;
@@ -2154,7 +2164,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       : "";
 
     const photoSection = data.photoArchiveAllowed
-      ? '<section class="detailsection"><h3>Фото-примеры для карты стрижки</h3><div class="smallmuted" style="margin:-4px 0 12px">Примеры длины, формы и результата. Эти фотографии не относятся к отдельным визитам.</div>' +
+      ? '<section class="detailsection"><h3>Фото-примеры для карты стрижки</h3><div class="smallmuted" style="margin:-4px 0 12px">Фото-примеры стрижки.</div>' +
         (photos.length
           ? '<div class="photo-grid">' + photos.map(function(photo) {
               return '<div class="photo-tile"><img alt="Фото-пример для карты стрижки" loading="lazy" data-photo-id="' + Number(photo.id) + '" src=""></div>';
@@ -2168,7 +2178,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     content.innerHTML =
       '<button class="back" id="back-pets">← Все питомцы</button>' +
       '<div class="profile-hero"><div><div class="eyebrow">ПИТОМЕЦ</div><div class="detailtitle">' + esc(pet.name) + '</div><div class="detailbreed">' + esc([pet.species === "cat" ? "Кошка" : "Собака",pet.breed,pet.breed_variant && String(pet.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(pet.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? pet.breed_variant : ""].filter(Boolean).join(" · ")) + '</div></div><div class="profile-mark">' + profileCover + '</div></div>' +
-      '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Это фото отображается на общей сетке питомцев. Оно не заменяет фото-примеры стрижки или снимки после визитов.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
+      '<section class="detailsection photo-purpose"><h3>Главное фото питомца</h3><div class="smallmuted">Фото в общем списке питомцев.</div><label class="btn secondary filelabel full">' + (data.profilePhoto ? "Заменить главное фото" : "Добавить главное фото") + '<input id="cover-photo-upload" type="file" accept="image/*"></label></section>' +
       '<section class="detailsection"><h3>О питомце</h3>' +
       detailRow("Возраст",pet.age) +
       detailRow("Комментарий",pet.comment) + '</section>' +
@@ -2312,7 +2322,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         items.forEach(function(item) {
           const article = historySlot.querySelector('[data-pet-visit-id="' + Number(item.id) + '"]');
           (item.photos || []).forEach(function(photo) {
-            photoJobs.push(loadPrivatePhoto(
+            photoJobs.push(loadPrivatePhotoWhenVisible(
               article && article.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
               photo.id,
               "visit"
@@ -2442,10 +2452,14 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (priceButton) {
           priceButton.addEventListener("click", async function() {
             const currentTotal = String(item.procedures || "").split(";").reduce(function(sum, entry) {
-              const match = entry.match(/:\\s*(-?\\d+(?:[.,]\\d{1,2})?)/);
-              return sum + (match ? Number(match[1].replace(",", ".")) : 0);
+              const separator = entry.lastIndexOf(":");
+              const amountText = separator >= 0
+                ? entry.slice(separator + 1).replace("₽", "").trim().replace(",", ".")
+                : "";
+              const amount = Number(amountText);
+              return sum + (Number.isFinite(amount) ? amount : 0);
             }, 0);
-            const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(/\\.00$/, ""));
+            const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(".00", ""));
             if (answer === null) return;
             const newTotal = Number(String(answer).replace(",", "."));
             if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > 100000) {
@@ -2502,7 +2516,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         }
 
         (item.photos || []).forEach(function(photo) {
-          photoJobs.push(loadPrivatePhoto(
+          photoJobs.push(loadPrivatePhotoWhenVisible(
             article.querySelector('[data-visit-photo="' + Number(photo.id) + '"]'),
             photo.id,
             "visit"
