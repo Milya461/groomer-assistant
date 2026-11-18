@@ -141,6 +141,10 @@ h2{font-size:18px;letter-spacing:-.04em;margin:0;font-weight:760}
 .history-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:9px 0;background:#fff}
 .history-photos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
 .history-photo{aspect-ratio:1;border-radius:8px}
+.history-photo-section{margin-top:12px}
+.history-photo-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px;font-size:11px;color:var(--muted)}
+.history-photo-row .inlineaction{margin:0;padding:6px 9px}
+.history-photo-section .history-photos{margin:6px 0 10px}
 .history-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .history-name{font-size:13px;font-weight:760}
 .history-meta{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
@@ -641,13 +645,18 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ? '<div class="history-photos">' + items.map(function(photo) {
             return '<div class="photo-tile history-photo"><img alt="Фото ' + label + '" loading="lazy" data-visit-photo="' + Number(photo.id) + '" src=""></div>';
           }).join("") + '</div>'
-        : '<div class="smallmuted">Фотографий пока нет.</div>';
+        : '';
     }
-    const canUpload = !["cancelled","no_show"].includes(item.status);
-    return '<div class="history-photo-section"><div class="smallmuted history-photo-label">До стрижки</div>' + tiles(before,"до стрижки") +
-      (canUpload ? '<label class="btn secondary filelabel history-photo-label">Добавить фото до<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
-      '<div class="smallmuted history-photo-label">После стрижки</div>' + tiles(after,"после стрижки") +
-      (item.status === "completed" ? '<label class="btn secondary filelabel history-photo-label">Добавить фото после<input type="file" accept="image/*" data-visit-photo-upload="after" data-appointment-id="' + Number(item.id) + '" /></label>' : '') + '</div>';
+    const canUploadBefore = !["cancelled","no_show"].includes(item.status);
+    const canUploadAfter = item.status === "completed";
+    return '<div class="history-photo-section">' +
+      '<div class="history-photo-row"><span>Фото до</span>' +
+        (canUploadBefore ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="before" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
+      '</div>' + tiles(before,"до стрижки") +
+      '<div class="history-photo-row"><span>Фото после</span>' +
+        (canUploadAfter ? '<label class="inlineaction filelabel">＋ Добавить<input type="file" accept="image/*" data-visit-photo-upload="after" data-appointment-id="' + Number(item.id) + '" /></label>' : '') +
+      '</div>' + tiles(after,"после стрижки") +
+    '</div>';
   }
   function bindVisitPhotoUpload(container, afterSave) {
     container.querySelectorAll("[data-visit-photo-upload]").forEach(function(input) {
@@ -808,7 +817,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     if (item.actual_end_time) timeDetails.push("Окончание · " + item.actual_end_time);
     return '<div class="visit-detail-panel-inner">' +
       '<div class="visit-detail-heading">Что сделали</div>' +
-      (servicesHtml || '<div class="visit-detail-empty">Услуги ещё не внесены. После завершения визита здесь появятся комплекс, гигиена, зубы и другие выполненные процедуры.</div>') +
+      (servicesHtml || '<div class="visit-detail-empty">Услуги ещё не внесены.</div>') +
       (duration ? '<div class="visit-detail-meta">Фактическая длительность · ' + esc(formatDuration(duration)) + '</div>' : '') +
       (timeDetails.length ? '<div class="visit-detail-meta">' + timeDetails.map(esc).join(' · ') + '</div>' : '') +
       ((serviceTotal > 0 || earned > 0)
@@ -1168,7 +1177,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     const rows = data.queue || [];
     content.innerHTML =
       '<div class="dashboard-grid">' +
-        '<section class="hero dark"><div class="eyebrow">PRETTY DOGS · WORKSPACE</div><div class="hero-heading">День начинается с заботы.</div><div class="hero-desc">Все важное под рукой: очередь, питомцы, визиты и твои результаты за день.</div><div class="hero-meta"><span class="chip">' + esc(data.dateDisplay) + '</span><span class="chip">' + Number(counts.total || 0) + ' записей на сегодня</span></div></section>' +
+        '<section class="hero dark"><div class="eyebrow">PRETTY DOGS · WORKSPACE</div><div class="hero-heading">День начинается с заботы.</div><div class="hero-desc">Очередь и заработок за сегодня.</div><div class="hero-meta"><span class="chip">' + esc(data.dateDisplay) + '</span></div></section>' +
         '<section class="hero"><div class="eyebrow">Заработок сегодня</div><div class="money">' + money(data.earnedToday) + '</div><div class="smallmuted">' + Number(data.earningsCount || 0) + ' услуг учтено</div><div class="hero-meta"><span class="chip">Прогресс рабочего дня</span></div></section>' +
       '</div>' +
       '<div class="metricgrid">' +
@@ -1176,7 +1185,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="metric"><div class="value">' + Number(counts.inProgress || 0) + '</div><div class="label">В работе</div></div>' +
         '<div class="metric"><div class="value">' + Number(counts.completed || 0) + '</div><div class="label">Завершено</div></div>' +
       '</div>' +
-      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2><div class="smallmuted" style="margin-top:5px">Текущие записи и действия по визитам</div><div class="count" style="margin-top:5px">' + rows.length + ' ЗАПИСЕЙ</div></div></div>' +
+      '<div class="sectionhead"><div><h2>Очередь на сегодня</h2></div></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">' +
         '<button type="button" class="btn" id="add-appointment" style="flex:1 1 145px">＋ Добавить запись</button>' +
         '<button type="button" class="btn secondary" id="add-unscheduled-service" style="flex:1 1 145px">＋ Услуга без записи</button>' +
@@ -1909,7 +1918,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
   async function renderPets() {
     currentScreen = "pets";
-    setHead("Питомцы","Карточки, комментарии и история ухода");
+    setHead("Питомцы","");
     clearObjectUrls();
     content.innerHTML =
       '<div class="searchbar"><input id="pet-search" placeholder="Найти питомца по имени или породе" value="' + esc(petQuery) + '" autocomplete="off"><button id="pet-search-btn">Найти</button></div>' +
@@ -2271,7 +2280,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       return '<article class="history-card">' +
         '<div class="history-top"><div><div class="history-name">' + esc(item.name) + '</div><div class="history-meta">' + esc([item.species === "cat" ? "кошка" : "собака", item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ")) + '<br>' + esc(date) + ' · ' + esc(statusText(item.status)) + '</div></div>' +
         '<div class="history-time">' + esc(time) + '</div></div>' +
-        (["cancelled","no_show"].includes(item.status) ? "" : '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + (item.status === "completed" ? '✎ Изменить время начала завершённого визита' : '✎ Изменить время начала') + '</button>' +
+        (["cancelled","no_show"].includes(item.status) ? "" : '<button type="button" class="inlineaction primary-action" data-edit-start-time="' + Number(item.id) + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">' + '✎ Изменить время начала' + '</button>' +
         '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
         (item.status === "completed" ? '<button type="button" class="inlineaction" data-edit-visit-price="' + Number(item.id) + '">Изменить стоимость визита</button>' : '') +
         '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Открыть запись · услуги ↓</button>' +
@@ -2285,7 +2294,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
 
     content.innerHTML =
       '<div class="searchbar"><input id="visit-search" placeholder="Найти по имени питомца" value="' + esc(visitsSearchQuery) + '" autocomplete="off"><button type="button" id="visit-search-btn">Найти</button></div>' +
-      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2><div class="smallmuted" style="margin-top:5px">История визитов, отмен и неявок</div></div><span class="count">' + total + ' визитов</span></div>' +
+      '<div class="sectionhead" style="margin-top:0"><div><h2>История визитов</h2></div><span class="count">' + total + ' визитов</span></div>' +
       (visits.length ? '<div id="visit-history-list">' + visitCards + '</div>' :
         '<div class="empty">' + (visitsSearchQuery ? 'По этому имени визитов не найдено.' : 'История пока пустая. Завершённые визиты появятся здесь.') + '</div>') +
       (data.hasMore ? '<button type="button" class="btn secondary full" id="visits-load-more">Загрузить ещё визиты</button>' : '');
@@ -2483,7 +2492,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       });
       if (!filtered.length) {
         return '<div class="empty">' +
-          (stats.length ? 'По этому запросу ничего не найдено.' : 'Пока нет завершённых визитов с сохранённым временем и указанной породой и услугой. После новых завершённых визитов статистика появится автоматически.') +
+          (stats.length ? 'По этому запросу ничего не найдено.' : 'Пока нет завершённых визитов с указанной породой, услугой и временем.') +
           '</div>';
       }
       return filtered.map(function(item) {
