@@ -4928,6 +4928,12 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   const selected = resolveServiceSelection(appointment, body?.selectedServices);
   if (selected.error) return selected;
   const services = selected.services;
+  if (!services.some(service => String(service.id || "").startsWith("groom:"))) {
+    return { error: "Выбери одну основную услугу.", status: 400 };
+  }
+  if (services.some(service => !Number.isFinite(Number(service.amount)) || Number(service.amount) <= 0)) {
+    return { error: "Укажи цену больше нуля для каждой выбранной услуги.", status: 400 };
+  }
   const finalTotal = Number(body?.finalTotal);
   if (!Number.isFinite(finalTotal) || finalTotal <= 0 || finalTotal > 100000) {
     return { error: "Укажи итоговую сумму визита больше нуля.", status: 400 };
@@ -5118,6 +5124,169 @@ async function handleWebApi(request, env) {
         note: photosWithoutEmbeddedFiles ? "Часть старых фотографий хранится только по внешним ссылкам и не вложена в копию." : "Фотографии, доступные в веб-хранилище, вложены в копию."
       });
     }
+    if (request.method === "POST" && path === "/api/restore") {
+      const contentLength = Number(request.headers.get("Content-Length") || 0);
+      if (contentLength > 45 * 1024 * 1024) {
+        return webApiResponse({ error: "Файл копии слишком большой. Максимальный размер — 45 МБ." }, 413);
+      }
+
+      let backup;
+      try {
+        backup = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать файл резервной копии." }, 400);
+      }
+
+      if (backup?.backupFormat !== "pretty-dogs-json-v1" || !backup.contents || typeof backup.contents !== "object") {
+        return webApiResponse({ error: "Формат файла не распознан. Выбери резервную копию Pretty Dogs." }, 400);
+      }
+
+      const contents = backup.contents;
+      const collections = [
+        "pets", "appointments", "earnings", "workShifts",
+        "groomingCards", "serviceTemplates", "visitPhotos",
+        "groomingPhotos", "coverPhotos", "photoFiles"
+      ];
+      for (const name of collections) {
+        if (contents[name] != null && !Array.isArray(contents[name])) {
+          return webApiResponse({ error: "В резервной копии повреждён раздел: " + name + "." }, 400);
+        }
+      }
+      const totalRows = collections.reduce((sum, name) => sum + (contents[name] || []).length, 0);
+      if (totalRows > 30000) {
+        return webApiResponse({ error: "В копии слишком много записей для одного восстановления." }, 413);
+      }
+
+      const photoFiles = contents.photoFiles || [];
+      const photoMap = new Map();
+      let totalPhotoBase64Length = 0;
+      for (const photo of photoFiles) {
+        const collection = String(photo?.collection || "");
+        const recordId = Number(photo?.recordId);
+        const contentType = String(photo?.contentType || "");
+        const base64 = String(photo?.base64 || "");
+        if (!["visitPhotos", "groomingPhotos", "coverPhotos"].includes(collection) ||
+            !Number.isSafeInteger(recordId) || recordId <= 0 ||
+            !/^image\\/[a-z0-9.+-]+$/i.test(contentType) ||
+            !base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
+            base64.length > 1_900_000) {
+          return webApiResponse({ error: "В копии обнаружена некорректная фотография." }, 400);
+        }
+        totalPhotoBase64Length += base64.length;
+        if (totalPhotoBase64Length > 38 * 1024 * 1024) {
+          return webApiResponse({ error: "Общий размер фотографий в копии превышает 38 МБ." }, 413);
+        }
+        const key = collection + ":" + recordId;
+        if (photoMap.has(key)) {
+          return webApiResponse({ error: "В копии повторяется одна и та же фотография." }, 400);
+        }
+        photoMap.set(key, DB_PHOTO_PREFIX + contentType + ";base64," + base64);
+      }
+
+      const tableSpecs = [
+        { key: "pets", table: "dogs", conflict: "id" },
+        { key: "appointments", table: "appointments", conflict: "id" },
+        { key: "earnings", table: "earnings_entries", conflict: "id" },
+        { key: "workShifts", table: "assistant_work_shifts", conflict: "shift_date" },
+        { key: "groomingCards", table: "grooming_cards", conflict: "dog_id" },
+        { key: "serviceTemplates", table: "service_templates", conflict: "name" }
+      ];
+
+      const counts = {};
+      let importedPhotoRows = 0;
+      let skippedPhotoRows = 0;
+
+      async function applyRows(table, conflictColumn, rows) {
+        if (!rows.length) {
+          counts[table] = 0;
+          return;
+        }
+        const info = await env.DB.prepare("PRAGMA table_info(" + table + ")").all();
+        const allowedColumns = new Set((info.results || []).map(column => String(column.name)));
+        if (!allowedColumns.size || !allowedColumns.has(conflictColumn)) {
+          throw new Error("Не удалось определить структуру таблицы " + table + ".");
+        }
+
+        const statements = [];
+        for (const row of rows) {
+          if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+          const entries = Object.entries(row).filter(([key, value]) =>
+            allowedColumns.has(key) && value !== undefined
+          );
+          if (!entries.some(([key]) => key === conflictColumn)) continue;
+          const columns = entries.map(([key]) => key);
+          const values = entries.map(([, value]) => value);
+          const updates = columns.filter(column => column !== conflictColumn);
+          const placeholders = columns.map(() => "?").join(", ");
+          const updateSql = updates.length
+            ? " DO UPDATE SET " + updates.map(column => column + " = excluded." + column).join(", ")
+            : " DO NOTHING";
+          const sql = "INSERT INTO " + table + " (" + columns.join(", ") + ") VALUES (" +
+            placeholders + ") ON CONFLICT(" + conflictColumn + ")" + updateSql;
+          statements.push(env.DB.prepare(sql).bind(...values));
+        }
+        for (let offset = 0; offset < statements.length; offset += 40) {
+          await env.DB.batch(statements.slice(offset, offset + 40));
+        }
+        counts[table] = statements.length;
+      }
+
+      try {
+        for (const spec of tableSpecs) {
+          await applyRows(spec.table, spec.conflict, contents[spec.key] || []);
+        }
+
+        const photoSpecs = [
+          { key: "visitPhotos", table: "visit_photos", conflict: "id", fileCollection: "visitPhotos" },
+          { key: "groomingPhotos", table: "grooming_card_photos", conflict: "id", fileCollection: "groomingPhotos" },
+          { key: "coverPhotos", table: "pet_cover_photos", conflict: "dog_id", fileCollection: "coverPhotos" }
+        ];
+        for (const spec of photoSpecs) {
+          const rows = [];
+          for (const source of contents[spec.key] || []) {
+            const recordId = Number(spec.key === "coverPhotos" ? source?.id : source?.id);
+            if (!source || source.imageEmbedded !== true || !Number.isSafeInteger(recordId) || recordId <= 0) {
+              skippedPhotoRows++;
+              continue;
+            }
+            const storedValue = photoMap.get(spec.fileCollection + ":" + recordId);
+            if (!storedValue) {
+              skippedPhotoRows++;
+              continue;
+            }
+            if (spec.key === "coverPhotos") {
+              rows.push({
+                dog_id: recordId,
+                updated_at: source.created_at || source.updated_at || new Date().toISOString(),
+                telegram_file_id: storedValue
+              });
+            } else {
+              rows.push({
+                ...source,
+                telegram_file_id: storedValue
+              });
+            }
+          }
+          await applyRows(spec.table, spec.conflict, rows);
+          importedPhotoRows += rows.length;
+        }
+      } catch (error) {
+        console.error("Pretty Dogs restore error:", error);
+        return webApiResponse({
+          error: "Восстановление прервалось на одном из разделов. Повторная загрузка того же файла безопасна — записи обновляются по ID."
+        }, 500);
+      }
+
+      return webApiResponse({
+        ok: true,
+        mode: "merge",
+        counts,
+        importedPhotoRows,
+        skippedPhotoRows,
+        message: "Данные из копии добавлены или обновлены. Записи, которых нет в копии, не удалялись."
+      });
+    }
+
     if (request.method === "GET" && path === "/api/breed-variants") {
       const breed = String(url.searchParams.get("breed") || "").trim().slice(0, 120);
       const species = String(url.searchParams.get("species") || "dog");
@@ -5884,6 +6053,9 @@ async function handleWebApi(request, env) {
         return webApiResponse({ error: "Некорректный питомец." }, 400);
       }
       const searchName = String(url.searchParams.get("q") || "").trim().slice(0, 100);
+      const requestedStatus = String(url.searchParams.get("status") || "").trim();
+      const allowedStatuses = ["completed", "in_progress", "cancelled", "no_show"];
+      const selectedMonth = String(url.searchParams.get("month") || "").trim();
       const filters = ["a.status IN ('completed', 'in_progress', 'cancelled', 'no_show')"];
       const filterBindings = [];
       if (dogId) {
@@ -5893,6 +6065,24 @@ async function handleWebApi(request, env) {
       if (searchName) {
         filters.push("LOWER(d.name) LIKE LOWER(?)");
         filterBindings.push("%" + searchName + "%");
+      }
+      if (requestedStatus && requestedStatus !== "all") {
+        if (!allowedStatuses.includes(requestedStatus)) {
+          return webApiResponse({ error: "Некорректный фильтр статуса." }, 400);
+        }
+        filters.push("a.status = ?");
+        filterBindings.push(requestedStatus);
+      }
+      if (selectedMonth) {
+        if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth)) {
+          return webApiResponse({ error: "Выбери корректный месяц." }, 400);
+        }
+        const [year, monthNumber] = selectedMonth.split("-").map(Number);
+        const nextMonth = new Date(Date.UTC(year, monthNumber, 1));
+        const nextMonthStart = nextMonth.getUTCFullYear() + "-" +
+          String(nextMonth.getUTCMonth() + 1).padStart(2, "0") + "-01";
+        filters.push("a.appointment_date >= ? AND a.appointment_date < ?");
+        filterBindings.push(selectedMonth + "-01", nextMonthStart);
       }
       const whereSql = filters.join(" AND ");
       const countResult = await env.DB.prepare(
