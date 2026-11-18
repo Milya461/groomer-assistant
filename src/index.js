@@ -4866,7 +4866,7 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   const correction = Math.round((roundedTotal - selectedTotal) * 100) / 100;
   const requestedEndTime = String(body?.actualEndTime || "").trim();
   const endTime = requestedEndTime || localTime();
-  if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(endTime)) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) {
     return { error: "Укажи корректное фактическое время окончания в формате ЧЧ:ММ.", status: 400 };
   }
   const startTime = appointment.actual_start_time || appointment.appointment_time || endTime;
