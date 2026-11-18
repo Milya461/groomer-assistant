@@ -5180,7 +5180,18 @@ async function handleWebApi(request, env) {
         if (photoMap.has(key)) {
           return webApiResponse({ error: "В копии повторяется одна и та же фотография." }, 400);
         }
-        photoMap.set(key, DB_PHOTO_PREFIX + contentType + ";base64," + base64);
+        const storedValue = DB_PHOTO_PREFIX + contentType + ";base64," + base64;
+        if (storedValue.length > MAX_DB_PHOTO_VALUE_BYTES) {
+          return webApiResponse({ error: "Одна из фотографий превышает допустимый размер для базы данных." }, 413);
+        }
+        try {
+          if (base64ToUint8Array(base64).byteLength > MAX_DB_PHOTO_BINARY_BYTES) {
+            return webApiResponse({ error: "Одна из фотографий слишком большая для восстановления." }, 413);
+          }
+        } catch {
+          return webApiResponse({ error: "В копии повреждены данные фотографии." }, 400);
+        }
+        photoMap.set(key, storedValue);
       }
 
       const tableSpecs = [
@@ -5210,7 +5221,10 @@ async function handleWebApi(request, env) {
         const statements = [];
         for (const row of rows) {
           if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-          const entries = Object.entries(row).filter(([key, value]) =>
+          const sourceRow = table === "service_templates"
+            ? Object.fromEntries(Object.entries(row).filter(([key]) => key !== "id"))
+            : row;
+          const entries = Object.entries(sourceRow).filter(([key, value]) =>
             allowedColumns.has(key) && value !== undefined
           );
           if (!entries.some(([key]) => key === conflictColumn)) continue;
