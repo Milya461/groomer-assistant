@@ -749,8 +749,12 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   const selected = resolveServiceSelection(appointment, body?.selectedServices);
   if (selected.error) return selected;
   const services = selected.services;
-  if (!services.some(service => String(service.id || "").startsWith("groom:"))) {
-    return { error: "Выбери одну основную услугу.", status: 400 };
+  const primaryServiceCount = services.filter(service => String(service.id || "").startsWith("groom:")).length;
+  if (primaryServiceCount !== 1) {
+    return { error: "Выбери ровно одну основную услугу.", status: 400 };
+  }
+  if (new Set(services.map(service => String(service.id))).size !== services.length) {
+    return { error: "Одна и та же услуга выбрана несколько раз.", status: 400 };
   }
   if (services.some(service => !Number.isFinite(Number(service.amount)) || Number(service.amount) <= 0)) {
     return { error: "Укажи цену больше нуля для каждой выбранной услуги.", status: 400 };
@@ -984,11 +988,11 @@ async function handleWebApi(request, env) {
       for (const photo of photoFiles) {
         const collection = String(photo?.collection || "");
         const recordId = Number(photo?.recordId);
-        const contentType = String(photo?.contentType || "");
+        const contentType = String(photo?.contentType || "").toLowerCase();
         const base64 = String(photo?.base64 || "");
         if (!["visitPhotos", "groomingPhotos", "coverPhotos"].includes(collection) ||
             !Number.isSafeInteger(recordId) || recordId <= 0 ||
-            !contentType.toLowerCase().startsWith("image/") ||
+            !["image/jpeg", "image/png", "image/webp"].includes(contentType) ||
             !base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
             base64.length > 1_900_000) {
           return webApiResponse({ error: "В копии обнаружена некорректная фотография." }, 400);
