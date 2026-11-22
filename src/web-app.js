@@ -1456,7 +1456,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ).catch(showError);
       });
     });
-    bindStartTimeEditorButtons(content, function(){return renderToday();
+    bindStartTimeEditorButtons(content, function(){return renderToday();});
     bindEndTimeEditorButtons(content, function(){return renderToday();});
     bindAppointmentStatusButtons(content, function(){return renderToday();});
     bindVisitPhotoUpload(content, function(){return renderToday();});
@@ -1960,7 +1960,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (appointment) openAppointmentEditor(appointment, calendarSelectedDate, selectedShift).catch(showError);
       });
     });
-    bindStartTimeEditorButtons(content, function(){return renderCalendar();
+    bindStartTimeEditorButtons(content, function(){return renderCalendar();});
     bindEndTimeEditorButtons(content, function(){return renderCalendar();});
     bindAppointmentStatusButtons(content, function(){return renderCalendar();});
     document.getElementById("calendar-multi-toggle").addEventListener("click",function() {
@@ -2592,8 +2592,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const article = listHost.querySelector('[data-history-visit-id="' + Number(item.id) + '"]');
         if (!article) return;
 
-        bindStartTimeEditorButtons(article, function(){return renderVisits();
-
+        bindStartTimeEditorButtons(article, function(){return renderVisits();});
         bindEndTimeEditorButtons(article, function(){return renderVisits();});
         bindVisitPhotoUpload(article, function(){return renderVisits();});
 
