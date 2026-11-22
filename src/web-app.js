@@ -787,6 +787,75 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
     });
   }
 
+  function bindEndTimeEditorButtons(container, afterSave) {
+    container.querySelectorAll("[data-edit-end-time]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        const appointmentId = Number(button.dataset.editEndTime);
+        const slot = container.querySelector('[data-end-time-editor-slot="' + appointmentId + '"]');
+        if (!slot) return;
+
+        if (slot.dataset.open === "1") {
+          slot.innerHTML = "";
+          slot.dataset.open = "";
+          return;
+        }
+
+        slot.dataset.open = "1";
+        const currentTime = String(button.dataset.currentEndTime || "").slice(0, 5);
+        slot.innerHTML =
+          '<form class="appointment-form end-time-editor-form" style="padding:12px;margin:10px 0">' +
+            '<div class="smallmuted" style="margin-bottom:9px">Исправь фактическое время окончания визита.</div>' +
+            '<label class="field"><span>ФАКТИЧЕСКОЕ ВРЕМЯ ОКОНЧАНИЯ</span><input name="endTime" type="time" value="' + esc(currentTime) + '" required></label>' +
+            '<div class="appointment-form-error" style="display:none"></div>' +
+            '<div class="appointment-form-actions" style="margin-top:10px">' +
+              '<button type="submit" class="btn">Сохранить</button>' +
+              '<button type="button" class="btn secondary" data-end-time-cancel>Отмена</button>' +
+            '</div>' +
+          '</form>';
+
+        const form = slot.querySelector("form");
+        const input = form.elements.endTime;
+        const saveButton = form.querySelector('button[type="submit"]');
+        const cancelButton = form.querySelector("[data-end-time-cancel]");
+        const errorBox = form.querySelector(".appointment-form-error");
+
+        cancelButton.addEventListener("click", function() {
+          slot.innerHTML = "";
+          slot.dataset.open = "";
+        });
+
+        form.addEventListener("submit", async function(event) {
+          event.preventDefault();
+          const endTime = String(input.value || "").trim();
+          if (!endTime) {
+            errorBox.textContent = "Укажи время окончания визита.";
+            errorBox.style.display = "block";
+            return;
+          }
+
+          saveButton.disabled = true;
+          saveButton.textContent = "Сохраняю…";
+          errorBox.style.display = "none";
+
+          try {
+            await api("/api/visits/" + appointmentId + "/end-time", {
+              method: "PUT",
+              body: JSON.stringify({ endTime: endTime })
+            });
+            await afterSave();
+          } catch(error) {
+            errorBox.textContent = error.message || "Не удалось сохранить время окончания.";
+            errorBox.style.display = "block";
+            saveButton.disabled = false;
+            saveButton.textContent = "Сохранить";
+          }
+        });
+
+        input.focus();
+      });
+    });
+  }
+
   function rowForVisit(item) {
     const petBreedLabel = [item.breed, item.breed_variant && String(item.breed || "").toLocaleLowerCase("ru-RU").indexOf(String(item.breed_variant).toLocaleLowerCase("ru-RU")) < 0 ? item.breed_variant : ""].filter(Boolean).join(" · ");
     const petLabel = item.name + (petBreedLabel ? " · " + petBreedLabel : "");
@@ -797,6 +866,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       : (item.actual_start_time || item.appointment_time);
     let action = "";
     let editTimeAction = "";
+    let editEndTimeAction = "";
 
     if (isPending) {
       action = '<button class="inlineaction primary-action" data-start-visit="' + id + '">▶ Начать визит</button>';
@@ -806,6 +876,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
       editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
     } else if (item.status === "completed") {
       editTimeAction = '<button type="button" class="inlineaction" data-edit-start-time="' + id + '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") + '" data-visit-status="' + esc(item.status) + '">Изменить время начала</button>';
+      editEndTimeAction = '<button type="button" class="inlineaction" data-edit-end-time="' + id + '" data-current-end-time="' + esc(item.actual_end_time || "") + '">Изменить время окончания</button>';
     }
 
     return '<div class="item"><div class="time">' + esc(displayedTime || "—") + '</div><div class="itembody">' +
@@ -813,8 +884,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<span class="itemtitle">' + esc(petLabel) + '</span>' +
         '<span class="itemmeta">' + esc(statusText(item.status)) + (item.actual_duration_minutes ? " · " + esc(formatDuration(item.actual_duration_minutes)) : "") + '</span>' +
         '<span class="visit-record-hint">Открыть запись · услуги ↓</span>' +
-      '</button>' + action + editTimeAction +
+      '</button>' + action + editTimeAction + editEndTimeAction +
       (editTimeAction ? '<div data-start-time-editor-slot="' + id + '"></div>' : '') +
+      (editEndTimeAction ? '<div data-end-time-editor-slot="' + id + '"></div>' : '') +
       appointmentStatusActionsHtml(item) +
       visitBeforeUploadHtml(item) +
       '<div class="visit-detail-panel" id="visit-detail-' + id + '" hidden></div>' +
@@ -1384,7 +1456,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         ).catch(showError);
       });
     });
-    bindStartTimeEditorButtons(content, function(){return renderToday();});
+    bindStartTimeEditorButtons(content, function(){return renderToday();
+    bindEndTimeEditorButtons(content, function(){return renderToday();});
     bindAppointmentStatusButtons(content, function(){return renderToday();});
     bindVisitPhotoUpload(content, function(){return renderToday();});
   }
@@ -1887,7 +1960,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         if (appointment) openAppointmentEditor(appointment, calendarSelectedDate, selectedShift).catch(showError);
       });
     });
-    bindStartTimeEditorButtons(content, function(){return renderCalendar();});
+    bindStartTimeEditorButtons(content, function(){return renderCalendar();
+    bindEndTimeEditorButtons(content, function(){return renderCalendar();});
     bindAppointmentStatusButtons(content, function(){return renderCalendar();});
     document.getElementById("calendar-multi-toggle").addEventListener("click",function() {
       calendarMultiSelectMode = !calendarMultiSelectMode;
@@ -2493,6 +2567,11 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '" data-current-start-time="' + esc(item.actual_start_time || item.appointment_time || "") +
           '" data-visit-status="' + esc(item.status) + '">✎ Изменить время начала</button>' +
           '<div data-start-time-editor-slot="' + Number(item.id) + '"></div>') +
+        (item.status === "completed"
+          ? '<button type="button" class="inlineaction" data-edit-end-time="' + Number(item.id) +
+            '" data-current-end-time="' + esc(item.actual_end_time || "") +
+            '">✎ Изменить время окончания</button><div data-end-time-editor-slot="' + Number(item.id) + '"></div>'
+          : "") +
         (item.status === "completed" ? '<button type="button" class="inlineaction" data-edit-visit-price="' + Number(item.id) + '">Изменить стоимость</button>' : "") +
         '<button type="button" class="inlineaction visit-history-toggle" data-toggle-history-detail="' + Number(item.id) + '" aria-expanded="false">Услуги и сумма ↓</button>' +
         '<div class="visit-detail-panel" id="history-visit-detail-' + Number(item.id) + '" hidden></div>' +
@@ -2513,7 +2592,9 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         const article = listHost.querySelector('[data-history-visit-id="' + Number(item.id) + '"]');
         if (!article) return;
 
-        bindStartTimeEditorButtons(article, function(){return renderVisits();});
+        bindStartTimeEditorButtons(article, function(){return renderVisits();
+
+        bindEndTimeEditorButtons(article, function(){return renderVisits();});
         bindVisitPhotoUpload(article, function(){return renderVisits();});
 
         const priceButton = article.querySelector("[data-edit-visit-price]");
