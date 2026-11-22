@@ -2303,6 +2303,60 @@ async function handleWebApi(request, env) {
       });
     }
 
+
+    const editVisitEndTimeMatch = path.match(/^\/api\/visits\/(\d+)\/end-time$/);
+    if (request.method === "PUT" && editVisitEndTimeMatch) {
+      const appointmentId = Number(editVisitEndTimeMatch[1]);
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return webApiResponse({ error: "Не удалось прочитать новое время окончания." }, 400);
+      }
+
+      const endTime = String(body.endTime || "").trim();
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) {
+        return webApiResponse({ error: "Укажи корректное время окончания в формате ЧЧ:ММ." }, 400);
+      }
+
+      const appointment = await env.DB.prepare(
+        "SELECT id, appointment_date, appointment_time, actual_start_time, status FROM appointments WHERE id = ?"
+      ).bind(appointmentId).first();
+
+      if (!appointment) {
+        return webApiResponse({ error: "Визит не найден." }, 404);
+      }
+      if (appointment.status !== "completed") {
+        return webApiResponse({ error: "Время окончания можно изменить только у завершённого визита." }, 409);
+      }
+
+      const startTime = String(
+        appointment.actual_start_time || appointment.appointment_time || ""
+      ).slice(0, 5);
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
+        return webApiResponse({ error: "Не удалось определить время начала визита." }, 400);
+      }
+
+      const startMs = localDateTimeMs(appointment.appointment_date, startTime);
+      const endMs = localDateTimeMs(appointment.appointment_date, endTime);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return webApiResponse({ error: "Время окончания должно быть позже времени начала визита." }, 400);
+      }
+
+      const durationMinutes = Math.round((endMs - startMs) / 60000);
+      await env.DB.prepare(
+        "UPDATE appointments SET actual_end_time = ?, actual_duration_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'completed'"
+      ).bind(endTime, durationMinutes, appointmentId).run();
+
+      return webApiResponse({
+        ok: true,
+        appointmentId,
+        endTime,
+        timeField: "actual_end_time",
+        actualDurationMinutes: durationMinutes
+      });
+    }
+
 const startVisitMatch = path.match(/^\/api\/visits\/(\d+)\/start$/);
     if (request.method === "POST" && startVisitMatch) {
       const appointmentId = Number(startVisitMatch[1]);
