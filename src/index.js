@@ -756,11 +756,11 @@ async function finishWebVisitWithoutBot(env, appointmentId, appointmentDate, bod
   if (new Set(services.map(service => String(service.id))).size !== services.length) {
     return { error: "Одна и та же услуга выбрана несколько раз.", status: 400 };
   }
-  if (services.some(service => !Number.isFinite(Number(service.amount)) || Number(service.amount) <= 0)) {
+  if (services.some(service => !Number.isFinite(Number(service.amount)) || Number(service.amount) < 0)) {
     return { error: "Укажи цену больше нуля для каждой выбранной услуги.", status: 400 };
   }
   const finalTotal = Number(body?.finalTotal);
-  if (!Number.isFinite(finalTotal) || finalTotal <= 0 || finalTotal > 100000) {
+  if (!Number.isFinite(finalTotal) || finalTotal < 0 || finalTotal > 100000) {
     return { error: "Укажи итоговую сумму визита больше нуля.", status: 400 };
   }
   const roundedTotal = Math.round(finalTotal * 100) / 100;
@@ -1349,8 +1349,8 @@ async function handleWebApi(request, env) {
       try { body = await request.json(); }
       catch { return webApiResponse({ error: "Не удалось прочитать новую сумму." }, 400); }
       const targetTotal = Math.round(Number(body.total) * 100) / 100;
-      if (!Number.isFinite(targetTotal) || targetTotal <= 0 || targetTotal > 100000) {
-        return webApiResponse({ error: "Укажи сумму больше 0 и не больше 100 000 ₽." }, 400);
+      if (!Number.isFinite(targetTotal) || targetTotal < 0 || targetTotal > 100000) {
+        return webApiResponse({ error: "Укажи сумму от 0 до 100 000 ₽." }, 400);
       }
       const appointment = await env.DB.prepare(
         "SELECT id, status, procedures FROM appointments WHERE id = ?"
@@ -2061,8 +2061,8 @@ async function handleWebApi(request, env) {
       if (!description) {
         return webApiResponse({ error: "Укажи название услуги." }, 400);
       }
-      if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 100000) {
-        return webApiResponse({ error: "Стоимость должна быть больше 0 и не превышать 100 000 ₽." }, 400);
+      if (!Number.isFinite(rawAmount) || rawAmount < 0 || rawAmount > 100000) {
+        return webApiResponse({ error: "Стоимость не может быть отрицательной и не должна превышать 100 000 ₽." }, 400);
       }
       const amount = Math.round(rawAmount * 100) / 100;
       const rate = rateForUnscheduled(description);
