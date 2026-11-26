@@ -991,7 +991,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             (service.minutes ? '<div class="service-choice-note">' + Number(service.minutes) + ' мин</div>' : '') +
             '<div class="service-choice-controls ' + (sizeSelector ? '' : 'single') + '">' +
               sizeSelector +
-              '<label><span>Цена, ₽</span><input type="number" min="0.01" max="100000" step="0.01" placeholder="' + (inputValue === "" ? "Укажи цену" : "") + '" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
+              '<label><span>Цена, ₽</span><input type="number" min="0" max="100000" step="0.01" placeholder="' + (inputValue === "" ? "Укажи цену (можно 0)" : "") + '" value="' + inputValue + '" data-finish-price="' + esc(id) + '"></label>' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1023,7 +1023,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           '<label class="field" style="display:block;margin:14px 0"><span>ФАКТИЧЕСКОЕ ВРЕМЯ ЗАВЕРШЕНИЯ</span><input type="time" data-finish-end-time value="' + new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Moscow",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date()) + '" required></label>' +
           '<div class="service-total-box">' +
             '<div><div class="service-total-label">Итоговая сумма визита, ₽</div><div class="service-total-help">Сначала сумма складывается из выбранного. Её можно скорректировать вручную до подтверждения.</div></div>' +
-            '<input type="number" min="0.01" max="100000" step="0.01" value="0" data-finish-total>' +
+            '<input type="number" min="0" max="100000" step="0.01" value="0" data-finish-total>' +
           '</div>' +
           '<div class="service-commission-preview" data-finish-commission>Выбери услуги, чтобы рассчитать итог и процент.</div>' +
           '<button type="button" class="inlineaction" data-finish-reset-total>Пересчитать сумму по выбранным услугам</button>' +
@@ -1109,12 +1109,12 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             errorBox.style.display = "block";
             return;
           }
-          if (currentServices.some(function(service){return !Number.isFinite(service.amount) || service.amount <= 0 || service.amount > 100000;})) {
-            errorBox.textContent = "Укажи цену больше нуля для каждой выбранной услуги.";
+          if (currentServices.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
+            errorBox.textContent = "Укажи цену от 0 до 100 000 ₽ для каждой выбранной услуги.";
             errorBox.style.display = "block";
             return;
           }
-          if (!Number.isFinite(currentTotal) || currentTotal <= 0 || currentTotal > 100000) {
+          if (!Number.isFinite(currentTotal) || currentTotal < 0 || currentTotal > 100000) {
             errorBox.textContent = "Укажи корректную итоговую сумму.";
             errorBox.style.display = "block";
             return;
@@ -1261,8 +1261,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
           errorBox.style.display = "block";
           return;
         }
-        if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount <= 0 || service.amount > 100000;})) {
-          errorBox.textContent = "Укажи цену больше нуля для каждой выбранной услуги.";
+        if (selections.some(function(service){return !Number.isFinite(service.amount) || service.amount < 0 || service.amount > 100000;})) {
+          errorBox.textContent = "Укажи цену от 0 до 100 000 ₽ для каждой выбранной услуги.";
           errorBox.style.display = "block";
           return;
         }
@@ -1471,7 +1471,7 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         '<div class="smallmuted">Когти, чистка параанальных желез и чаевые — 100%. Остальные услуги — 35%.</div>' +
         '<form id="unscheduled-service-form" style="margin-top:12px">' +
           '<label class="field"><span>УСЛУГА</span><input name="description" maxlength="120" placeholder="Например, Когти" required></label>' +
-          '<label class="field"><span>СТОИМОСТЬ УСЛУГИ, ₽</span><input name="amount" type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" placeholder="Например, 300" required></label>' +
+          '<label class="field"><span>СТОИМОСТЬ УСЛУГИ, ₽</span><input name="amount" type="number" min="0" max="100000" step="0.01" inputmode="decimal" placeholder="Например, 0 — бесплатно" required></label>' +
           '<div class="appointment-form-error" id="unscheduled-service-error" style="display:none"></div>' +
           '<div class="appointment-form-actions" style="margin-top:12px">' +
             '<button type="submit" class="btn" id="unscheduled-service-save">Сохранить услугу</button>' +
@@ -1494,8 +1494,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
         errorBox.style.display = "block";
         return;
       }
-      if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
-        errorBox.textContent = "Укажи стоимость услуги больше 0 и не больше 100 000 ₽.";
+      if (!Number.isFinite(amount) || amount < 0 || amount > 100000) {
+        errorBox.textContent = "Укажи стоимость от 0 до 100 000 ₽.";
         errorBox.style.display = "block";
         return;
       }
@@ -2610,8 +2610,8 @@ footer{border-top:1px solid var(--line);margin-top:38px;padding-top:14px;color:#
             const answer = window.prompt("Новая итоговая стоимость визита, ₽", currentTotal.toFixed(2).replace(".00", ""));
             if (answer === null) return;
             const newTotal = Number(String(answer).replace(",", "."));
-            if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > 100000) {
-              showError(new Error("Укажи сумму больше 0 и не больше 100 000 ₽."));
+            if (!Number.isFinite(newTotal) || newTotal < 0 || newTotal > 100000) {
+              showError(new Error("Укажи сумму от 0 до 100 000 ₽."));
               return;
             }
             priceButton.disabled = true;
